@@ -8,11 +8,12 @@ name: Auto CI (test APK)
 #   same version, <=100 lines       -> skip (a no-op push is not worth an APK)
 #   new version                     -> tag v<version> and open a release for it
 #
-# The fork has no production keystore secrets, so builds are signed with the
-# debug key by default: install one of these only after uninstalling the
-# store-signed app. Adding ANDROID_KEYSTORE_BASE64 + ANDROID_KEYSTORE_PASSWORD
-# + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD to the fork's settings switches
-# every build to release signing without touching this file.
+# The fork has no production keystore secrets, so builds are signed with a
+# persistent test key (generated once, then cached): install one of these only
+# after uninstalling the store-signed app, and updates work across rebuilds
+# because the signature is stable. Adding ANDROID_KEYSTORE_BASE64 +
+# ANDROID_KEYSTORE_PASSWORD + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD to the
+# fork's settings switches every build to that keystore instead.
 
 on:
   push:
@@ -108,12 +109,15 @@ jobs:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
         run: flutter pub get --enforce-lockfile
 
-      # Release signing, only when the fork has been given a keystore. All four
-      # values must be present or Gradle falls back to the debug key — which is
-      # exactly what an unsigned test build wants. The secrets context cannot
-      # appear in step `if:` expressions, so the absence check happens inside.
+      # Release signing. Gradle hard-fails a release build unless all four
+      # ANDROID_* values are present, so every run must end up with one of two
+      # keystores: the fork's production key (when its secrets are set) or a
+      # persistent test key generated here and kept in the Actions cache —
+      # stable across runs, so rebuilt APKs update over each other. The
+      # secrets context cannot appear in step `if:` expressions, so the absence
+      # check happens inside the first step.
       - name: Restore release keystore (optional)
-        id: keystore
+        id: release-key
         if: steps.decide.outputs.mode != 'skip'
         shell: bash
         env:
@@ -121,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$KEYSTORE_BASE64" ]]; then
-            echo "No ANDROID_KEYSTORE_BASE64 secret; the APK will be debug-signed."
+            echo "No ANDROID_KEYSTORE_BASE64 secret; falling back to the test key."
             exit 0
           fi
           umask 077
@@ -129,15 +133,52 @@ jobs:
           test -s "$RUNNER_TEMP/techpie-release.p12"
           echo "path=$RUNNER_TEMP/techpie-release.p12" >> "$GITHUB_OUTPUT"
 
+      # The cache is the keystore's home: a hit means last run already
+      # generated it, and saving after every build keeps it alive.
+      - name: Cache test keystore
+        id: test-key-cache
+        if: steps.decide.outputs.mode != 'skip' && !steps.release-key.outputs.path
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/techpie-test-keystore.p12
+          key: techpie-test-keystore-v1
+
+      - name: Prepare test keystore
+        id: test-key
+        if: steps.decide.outputs.mode != 'skip' && !steps.release-key.outputs.path
+        shell: bash
+        run: |
+          set -euo pipefail
+          keyfile="$RUNNER_TEMP/techpie-test-keystore.p12"
+          if [[ ! -f "$keyfile" ]]; then
+            echo "Cache miss; generating a fresh test keystore."
+            umask 077
+            keytool -genkeypair \
+              -keystore "$keyfile" \
+              -storetype PKCS12 \
+              -alias techpie-test \
+              -keyalg RSA -keysize 2048 \
+              -validity 10950 \
+              -dname "CN=TechPie Test, OU=CI, O=GeekPie, C=CN" \
+              -storepass techpie-ci-store \
+              -keypass techpie-ci-key
+          fi
+          {
+            echo "path=$keyfile"
+            echo "store-password=techpie-ci-store"
+            echo "key-alias=techpie-test"
+            echo "key-password=techpie-ci-key"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build release APK
         if: steps.decide.outputs.mode != 'skip'
         env:
-          # Empty when the restore step did not run; Gradle treats an empty
-          # value as absent and signs with the debug key instead.
-          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Each value prefers the production secret and falls back to the
+          # test key's fixed values when the fork has no keystore secrets.
+          ANDROID_KEYSTORE_PATH: ${{ steps.release-key.outputs.path || steps.test-key.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || steps.test-key.outputs.store-password }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || steps.test-key.outputs.key-alias }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || steps.test-key.outputs.key-password }}
           VERSION: ${{ steps.decide.outputs.version }}
         run: |
           set -euo pipefail
@@ -163,9 +204,16 @@ jobs:
           cp "$apk" "TechPie-${TAG#v}-android.apk"
 
           if [[ "$MODE" == "new-release" ]]; then
+            # gh release create resolves a missing tag against the default
+            # branch's HEAD — wrong for this fork, where the code lives on
+            # bionic/**. Point the tag at exactly what was just built.
+            if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              git tag "$TAG"
+              git push origin "$TAG"
+            fi
             gh release create "$TAG" "TechPie-${TAG#v}-android.apk" \
               --title "Test build ${TAG#v}" \
-              --notes "$(printf 'Auto-built test APK from %s (%s).\n\nSigned with the debug key unless this fork has keystore secrets; uninstall any store-signed install first.' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" \
+              --notes "$(printf 'Auto-built test APK from %s (%s).\n\nSigned with this fork%s; uninstall any store-signed install first.' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "'s persistent test key (or its production keystore once configured)")" \
               --prerelease="$PRERELEASE" \
               --latest=false
             echo "Opened release $TAG with the APK."
