@@ -482,7 +482,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: 'Spending alerts',
                 subtitle: 'Announce a payment once the app reads it from the ledger',
                 value: storage.spendingAlertsEnabled,
-                onChanged: (value) => unawaited(spending.setEnabled(value)),
+                onChanged: (value) {
+                  unawaited(spending.setEnabled(value));
+                  setState(() {});
+                },
               ),
             ListTile(
               leading: const Icon(Icons.info_outline),
