@@ -473,21 +473,44 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         ecardWidgetService: widget.ecardWidgetService,
         islandService: widget.islandService,
         spendingAlertService: widget.spendingAlertService,
-        child: MaterialApp(
-          navigatorKey: _navigatorKey,
-          scaffoldMessengerKey: rootMessengerKey,
-          navigatorObservers: [FeedbackRouteObserver()],
-          builder: (context, child) => AdaptiveFeedbackHost(
-            key: adaptiveFeedbackHostKey,
-            child: child ?? const SizedBox.shrink(),
+        child: _buildBanner(
+          MaterialApp(
+            navigatorKey: _navigatorKey,
+            scaffoldMessengerKey: rootMessengerKey,
+            navigatorObservers: [FeedbackRouteObserver()],
+            builder: (context, child) => AdaptiveFeedbackHost(
+              key: adaptiveFeedbackHostKey,
+              child: child ?? const SizedBox.shrink(),
+            ),
+            title: 'TechPie',
+            debugShowCheckedModeBanner: false,
+            theme: widget.themeService.lightTheme,
+            darkTheme: widget.themeService.darkTheme,
+            themeMode: widget.themeService.themeMode,
+            home: const AppShell(),
           ),
-          title: 'TechPie',
-          theme: widget.themeService.lightTheme,
-          darkTheme: widget.themeService.darkTheme,
-          themeMode: widget.themeService.themeMode,
-          home: const AppShell(),
         ),
       ),
+    );
+  }
+
+  /// Flutter's own corner ribbon is red and says DEBUG; this fork's says RCCE
+  /// and is blue, at the same corner in the same translucent style. Debug
+  /// builds only, so a store build stays unmarked.
+  Widget _buildBanner(Widget app) {
+    if (!kDebugMode) return app;
+    return Banner(
+      message: 'RCCE',
+      location: BannerLocation.topEnd,
+      color: const Color(0xA00D47A1),
+      textStyle: const TextStyle(
+        fontSize: 12.0,
+        fontWeight: FontWeight.w900,
+        color: Color(0xA0FFFFFF),
+      ),
+      textDirection: TextDirection.ltr,
+      layoutDirection: TextDirection.ltr,
+      child: app,
     );
   }
 }
