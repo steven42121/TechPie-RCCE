@@ -165,7 +165,15 @@ jobs:
           test -f "$apk"
           # One fixed asset name per version, so a rebuild overwrites the same
           # file instead of stacking dated copies on the release page.
-          cp "$apk" "TechPie-${TAG#v}-android.apk"
+          asset="TechPie-${TAG#v}-android.apk"
+          cp "$apk" "$asset"
+
+          # The checksum is what separates a mangled download from a good one:
+          # a corrupt transfer keeps the right byte count, and the installer's
+          # "packageInfo is NULL" then blames the wrong thing. The block sits
+          # under a heading the in-app dialog already strips from the changelog.
+          sha="$(sha256sum "$asset" | cut -d' ' -f1)"
+          notes="$(printf 'Auto-built test APK from %s (%s).\n\nSigned with the persistent test key of this fork (or its production keystore once configured); uninstall any store-signed install first.\n\n## SHA-256\n\n```text\n%s  %s\n```' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$asset")"
 
           if [[ "$MODE" == "new-release" ]]; then
             # gh release create resolves a missing tag against the default
@@ -175,13 +183,15 @@ jobs:
               git tag "$TAG"
               git push origin "$TAG"
             fi
-            gh release create "$TAG" "TechPie-${TAG#v}-android.apk" \
+            gh release create "$TAG" "$asset" \
               --title "Test build ${TAG#v}" \
-              --notes "$(printf 'Auto-built test APK from %s (%s).\n\nSigned with this fork%s; uninstall any store-signed install first.' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "'s persistent test key (or its production keystore once configured)")" \
+              --notes "$notes" \
               --prerelease="$PRERELEASE" \
               --latest=false
             echo "Opened release $TAG with the APK."
           else
-            gh release upload "$TAG" "TechPie-${TAG#v}-android.apk" --clobber
+            gh release upload "$TAG" "$asset" --clobber
+            # The overwrite changed the bytes; the notes must change with them.
+            gh release edit "$TAG" --notes "$notes"
             echo "Replaced the APK on release $TAG."
           fi
