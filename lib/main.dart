@@ -495,10 +495,10 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   }
 
   /// Flutter's own corner ribbon is red and says DEBUG; this fork's says RCCE
-  /// and is blue, at the same corner in the same translucent style. Debug
-  /// builds only, so a store build stays unmarked.
+  /// and is blue, at the same corner in the same translucent style. It marks
+  /// every build of this fork, test APKs included, so a trial build is never
+  /// mistaken for a store build.
   Widget _buildBanner(Widget app) {
-    if (!kDebugMode) return app;
     return Banner(
       message: 'RCCE',
       location: BannerLocation.topEnd,
