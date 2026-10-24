@@ -8,12 +8,13 @@ name: Auto CI (test APK)
 #   same version, <=100 lines       -> skip (a no-op push is not worth an APK)
 #   new version                     -> tag v<version> and open a release for it
 #
-# The fork has no production keystore secrets, so builds are signed with a
-# persistent test key (generated once, then cached): install one of these only
-# after uninstalling the store-signed app, and updates work across rebuilds
-# because the signature is stable. Adding ANDROID_KEYSTORE_BASE64 +
-# ANDROID_KEYSTORE_PASSWORD + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD to the
-# fork's settings switches every build to that keystore instead.
+# The fork has no production keystore secrets, so builds are signed with the
+# disposable test key committed at ci/techpie-test-keystore.p12 (its password
+# is printed in this file; it protects nothing). Committing it is what keeps
+# the signature constant, so test APKs update over each other — install one
+# only after uninstalling the store-signed app. Adding ANDROID_KEYSTORE_BASE64
+# + ANDROID_KEYSTORE_PASSWORD + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD to
+# the fork's settings switches every build to that keystore instead.
 
 on:
   push:
@@ -110,12 +111,11 @@ jobs:
         run: flutter pub get --enforce-lockfile
 
       # Release signing. Gradle hard-fails a release build unless all four
-      # ANDROID_* values are present, so every run must end up with one of two
-      # keystores: the fork's production key (when its secrets are set) or a
-      # persistent test key generated here and kept in the Actions cache —
-      # stable across runs, so rebuilt APKs update over each other. The
-      # secrets context cannot appear in step `if:` expressions, so the absence
-      # check happens inside the first step.
+      # ANDROID_* values are present, so every run signs with either the
+      # fork's production keystore (when its secrets are set) or the committed
+      # test key at ci/techpie-test-keystore.p12 — a fixed key, so rebuilt
+      # APKs always update over each other. The secrets context cannot appear
+      # in step `if:` expressions, so the absence check happens inside.
       - name: Restore release keystore (optional)
         id: release-key
         if: steps.decide.outputs.mode != 'skip'
@@ -125,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$KEYSTORE_BASE64" ]]; then
-            echo "No ANDROID_KEYSTORE_BASE64 secret; falling back to the test key."
+            echo "No ANDROID_KEYSTORE_BASE64 secret; signing with the committed test key."
             exit 0
           fi
           umask 077
@@ -133,52 +133,16 @@ jobs:
           test -s "$RUNNER_TEMP/techpie-release.p12"
           echo "path=$RUNNER_TEMP/techpie-release.p12" >> "$GITHUB_OUTPUT"
 
-      # The cache is the keystore's home: a hit means last run already
-      # generated it, and saving after every build keeps it alive.
-      - name: Cache test keystore
-        id: test-key-cache
-        if: steps.decide.outputs.mode != 'skip' && !steps.release-key.outputs.path
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/techpie-test-keystore.p12
-          key: techpie-test-keystore-v1
-
-      - name: Prepare test keystore
-        id: test-key
-        if: steps.decide.outputs.mode != 'skip' && !steps.release-key.outputs.path
-        shell: bash
-        run: |
-          set -euo pipefail
-          keyfile="$RUNNER_TEMP/techpie-test-keystore.p12"
-          if [[ ! -f "$keyfile" ]]; then
-            echo "Cache miss; generating a fresh test keystore."
-            umask 077
-            keytool -genkeypair \
-              -keystore "$keyfile" \
-              -storetype PKCS12 \
-              -alias techpie-test \
-              -keyalg RSA -keysize 2048 \
-              -validity 10950 \
-              -dname "CN=TechPie Test, OU=CI, O=GeekPie, C=CN" \
-              -storepass techpie-ci-store \
-              -keypass techpie-ci-key
-          fi
-          {
-            echo "path=$keyfile"
-            echo "store-password=techpie-ci-store"
-            echo "key-alias=techpie-test"
-            echo "key-password=techpie-ci-key"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Build release APK
         if: steps.decide.outputs.mode != 'skip'
         env:
           # Each value prefers the production secret and falls back to the
-          # test key's fixed values when the fork has no keystore secrets.
-          ANDROID_KEYSTORE_PATH: ${{ steps.release-key.outputs.path || steps.test-key.outputs.path }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || steps.test-key.outputs.store-password }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || steps.test-key.outputs.key-alias }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || steps.test-key.outputs.key-password }}
+          # committed test key. PKCS12 keys use the store password for the key
+          # entry too, so both passwords are the same.
+          ANDROID_KEYSTORE_PATH: ${{ steps.release-key.outputs.path || format('{0}/ci/techpie-test-keystore.p12', github.workspace) }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'techpie-ci-store' }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'techpie-test' }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'techpie-ci-store' }}
           VERSION: ${{ steps.decide.outputs.version }}
         run: |
           set -euo pipefail
