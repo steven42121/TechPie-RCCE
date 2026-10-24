@@ -1,0 +1,141 @@
+import 'assignment.dart';
+import 'course.dart';
+
+/// One frame of schedule-island content, rendered by the platform.
+class IslandFrame {
+  const IslandFrame({
+    required this.kind,
+    required this.title,
+    required this.statusLine,
+    this.subTitle,
+    this.detail,
+  });
+
+  /// `class` or `deadline` — what the island is about.
+  final String kind;
+  final String title;
+
+  /// The capsule line: 上课中 / 20 分钟后开始 / 今天截止 23:59.
+  final String statusLine;
+  final String? subTitle;
+  final String? detail;
+
+  Map<String, Object?> toJson() => {
+        'kind': kind,
+        'title': title,
+        'statusLine': statusLine,
+        'subTitle': subTitle,
+        'detail': detail,
+      };
+
+  @override
+  String toString() => 'IslandFrame($kind, $title, $statusLine)';
+}
+
+/// A class is worth the island from this long before it starts.
+const nextClassLead = Duration(minutes: 90);
+
+/// A deadline is worth the island until this long before it is due.
+const deadlineLead = Duration(hours: 24);
+
+/// What the island should say at [now], or null when nothing deserves it — a
+/// caller dismisses on null rather than leaving a stale frame up.
+///
+/// [dayCourses] is one day's sessions in period order and [upcomingDeadlines]
+/// is already filtered to what the user still owes; both come from the cached
+/// schedule and assignment state, never from a live fetch.
+IslandFrame? buildIslandFrame({
+  required List<Course> dayCourses,
+  required List<Assignment> upcomingDeadlines,
+  required DateTime now,
+}) {
+  final minutes = now.hour * 60 + now.minute;
+  Course? running;
+  Course? upcoming;
+  for (final course in dayCourses) {
+    final start = parseClockMinutes(course.startTime);
+    final end = parseClockMinutes(course.endTime);
+    if (start == null || end == null) continue;
+    if (start <= minutes && minutes < end) {
+      running = course;
+      break;
+    }
+    if (start > minutes) {
+      upcoming = course;
+      break;
+    }
+  }
+
+  if (running != null) {
+    return IslandFrame(
+      kind: 'class',
+      title: running.name,
+      subTitle: '${running.startTime}–${running.endTime}',
+      statusLine: '上课中',
+      detail: running.location,
+    );
+  }
+
+  final gap = upcoming == null
+      ? null
+      : Duration(
+          minutes: (parseClockMinutes(upcoming.startTime) ?? 0) - minutes,
+        );
+  final deadline = _nearestDeadline(upcomingDeadlines, now);
+
+  if (gap != null && gap <= nextClassLead) {
+    return IslandFrame(
+      kind: 'class',
+      title: upcoming!.name,
+      subTitle: '${upcoming.startTime}–${upcoming.endTime}',
+      statusLine: gap <= const Duration(hours: 1)
+          ? '${gap.inMinutes} 分钟后开始'
+          : '${upcoming.startTime} 开始',
+      detail: upcoming.location,
+    );
+  }
+
+  if (deadline != null) {
+    return IslandFrame(
+      kind: 'deadline',
+      title: deadline.title,
+      statusLine: _deadlineStatus(deadline.due, now),
+      detail: '${deadline.course} · ${deadline.kind.label}',
+    );
+  }
+
+  // Nothing imminent: a class hours away or a deadline tomorrow is the home
+  // page's business, not the status bar's.
+  return null;
+}
+
+Assignment? _nearestDeadline(
+  List<Assignment> deadlines,
+  DateTime now, {
+  Duration window = deadlineLead,
+}) {
+  Assignment? best;
+  for (final assignment in deadlines) {
+    final left = assignment.due.difference(now);
+    if (left.isNegative || left > window) continue;
+    if (best == null || assignment.due.isBefore(best.due)) best = assignment;
+  }
+  return best;
+}
+
+String _deadlineStatus(DateTime due, DateTime now) {
+  final day = _clock(due);
+  if (due.year == now.year && due.month == now.month && due.day == now.day) {
+    return '今天截止 $day';
+  }
+  final tomorrow = DateTime(now.year, now.month, now.day + 1);
+  if (due.year == tomorrow.year &&
+      due.month == tomorrow.month &&
+      due.day == tomorrow.day) {
+    return '明天截止 $day';
+  }
+  return '${due.difference(now).inHours} 小时后截止';
+}
+
+String _clock(DateTime value) =>
+    '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';

@@ -5,6 +5,13 @@
     <uses-permission android:name="android.permission.READ_CALENDAR"/>
     <uses-permission android:name="android.permission.WRITE_CALENDAR"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Schedule island: keep the process alive in the background so the
+         island notification stays fresh between class changes. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Android 16 status-bar live updates (island fallback tier). -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
     <application
         android:label="TechPie"
@@ -59,6 +66,20 @@
             <intent-filter>
                 <action android:name="android.net.VpnService"/>
             </intent-filter>
+        </service>
+        <!--
+          Keep-alive service for the schedule island. No stock FGS type fits
+          "keep the process alive so a notification stays fresh", so use
+          specialUse like MaaFwApp does; START_NOT_STICKY means no revival
+          after the process is killed (by design).
+        -->
+        <service
+            android:name=".island.IslandForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the schedule island notification fresh while classes and deadlines change" />
         </service>
         <receiver android:name=".EcardPayWidgetProvider" android:exported="false" android:label="@string/ecard_widget_title">
             <intent-filter>

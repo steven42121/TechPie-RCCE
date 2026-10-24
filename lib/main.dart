@@ -18,6 +18,7 @@ import 'services/ecard_bind_service.dart';
 import 'services/ecard_widget_service.dart';
 import 'services/egate_app_service.dart';
 import 'services/http_client.dart';
+import 'services/island_service.dart';
 import 'services/oa_gym_service.dart';
 import 'services/schedule_service.dart';
 import 'services/service_provider.dart';
@@ -107,6 +108,11 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // It talks to GitHub rather than our backend, so it keeps its own client
   // instead of the logging one the API services share.
   final updateService = UpdateService();
+  final islandService = IslandService(
+    storageService,
+    scheduleService,
+    assignmentService,
+  );
 
   authService.onLogout = () async {
     // Third-party bindings persist across logouts — they will be used by the
@@ -181,6 +187,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       campusCardService: campusCardService,
       ecardBindService: ecardBindService,
       ecardWidgetService: ecardWidgetService,
+      islandService: islandService,
     ),
   );
 
@@ -192,6 +199,10 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // The home-screen widget / shortcut only needs its handler once something
   // could press it — a widget tap on iOS/Android, a long-press shortcut on OHOS.
   if (isIos() || isAndroid() || isOhos()) ecardWidgetService.initialize();
+
+  // The island only mirrors what is already cached, so starting it on a device
+  // where the user never turned it on costs nothing.
+  islandService.start();
 
   // Build the campus-card runtime now that the first frame is up, so tapping the
   // pass does not pay for it. Nothing session-related happens here: a request
@@ -309,6 +320,7 @@ class TechPieApp extends StatefulWidget {
   final CampusCardService campusCardService;
   final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
+  final IslandService? islandService;
 
   const TechPieApp({
     super.key,
@@ -327,6 +339,7 @@ class TechPieApp extends StatefulWidget {
     required this.campusCardService,
     required this.ecardBindService,
     this.ecardWidgetService,
+    this.islandService,
   });
 
   @override
@@ -453,6 +466,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         campusCardService: widget.campusCardService,
         ecardBindService: widget.ecardBindService,
         ecardWidgetService: widget.ecardWidgetService,
+        islandService: widget.islandService,
         child: MaterialApp(
           navigatorKey: _navigatorKey,
           scaffoldMessengerKey: rootMessengerKey,

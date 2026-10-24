@@ -33,6 +33,7 @@ class StorageService {
   static const _syncMasterKeyKey = 'sync_master_key'; // secure storage
   static const _deviceIdKey = 'device_id';
   static const _maskPersonalInfoKey = 'mask_personal_info';
+  static const _islandEnabledKey = 'island_enabled';
 
   final FlutterSecureStorage _secure;
   final SharedPreferences _prefs;
@@ -202,6 +203,12 @@ class StorageService {
   bool get maskPersonalInfo => _prefs.getBool(_maskPersonalInfoKey) ?? true;
   Future<void> setMaskPersonalInfo(bool value) =>
       _prefs.setBool(_maskPersonalInfoKey, value);
+
+  /// Opt-in: the island is a persistent notification, so it is off until the
+  /// user asks for it.
+  bool get islandEnabled => _prefs.getBool(_islandEnabledKey) ?? false;
+  Future<void> setIslandEnabled(bool value) =>
+      _prefs.setBool(_islandEnabledKey, value);
 
   bool get useLocalhost =>
       !kReleaseMode && (_prefs.getBool(_useLocalhostKey) ?? false);

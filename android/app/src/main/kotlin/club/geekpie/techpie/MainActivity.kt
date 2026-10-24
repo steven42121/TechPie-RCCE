@@ -6,6 +6,7 @@ import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.CalendarContract
@@ -14,6 +15,12 @@ import android.provider.CalendarContract.Events
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import club.geekpie.techpie.ecardbind.EcardBindVpnService
+import club.geekpie.techpie.island.FocusSequenceStore
+import club.geekpie.techpie.island.IslandBackend
+import club.geekpie.techpie.island.IslandCapabilityProbe
+import club.geekpie.techpie.island.IslandForegroundService
+import club.geekpie.techpie.island.IslandFrame
+import club.geekpie.techpie.island.IslandNotificationFactory
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -25,6 +32,14 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ecardWidgets: EcardWidgetBridge? = null
     private var ecardFeedback: EcardFeedback? = null
+
+    // The probe caches the focus-permission lookup and the sequence store keeps
+    // the island's monotonic update counters; neither survives being rebuilt per
+    // method call.
+    private val islandProbe by lazy { IslandCapabilityProbe(this) }
+    private val islandFactory by lazy {
+        IslandNotificationFactory(this, FocusSequenceStore(this))
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -65,6 +80,23 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ISLAND_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "probe" -> result.success(islandProbe.snapshot().toMap())
+                "refreshProbe" -> result.success(islandProbe.refresh().toMap())
+                "updateFrame" -> handleIslandUpdate(call, result)
+                "dismiss" -> {
+                    dismissIsland()
+                    result.success(true)
+                }
+                "requestPermission" -> result.success(requestNotificationPermission())
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -83,6 +115,62 @@ class MainActivity : FlutterActivity() {
         ecardFeedback?.dispose()
         ecardFeedback = null
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    private fun handleIslandUpdate(call: MethodCall, result: MethodChannel.Result) {
+        val frameJson = call.argument<String>("frame")
+        val frame = frameJson?.let { IslandFrame.fromJson(it) }
+        if (frame == null) {
+            result.error("BAD_FRAME", "missing or unreadable frame json", null)
+            return
+        }
+        // The caller may force a tier for testing; by default the device decides,
+        // so a phone without the focus grant still gets the capsule or a plain
+        // ongoing notification instead of nothing.
+        val backend = call.argument<String>("backend")
+            ?.let { name -> runCatching { IslandBackend.valueOf(name.uppercase()) }.getOrNull() }
+            ?: islandProbe.snapshot().backend
+        try {
+            if (backend == IslandBackend.HYPER_ISLAND) {
+                IslandForegroundService.start(this, frameJson, backend)
+            } else {
+                islandFactory.updateFrame(
+                    frame,
+                    backend,
+                    IslandNotificationFactory.NOTIFICATION_ID,
+                )
+            }
+            result.success(backend.name.lowercase())
+        } catch (e: Exception) {
+            result.error("ISLAND_ERROR", e.message, null)
+        }
+    }
+
+    private fun dismissIsland() {
+        islandFactory.cancel(IslandNotificationFactory.NOTIFICATION_ID)
+        IslandForegroundService.stop(this)
+    }
+
+    /**
+     * Ask for the notification permission the island needs and report what the
+     * system says right now — the answer to a dialog the user has not answered
+     * yet is still "no", and the Dart side probes again after the resume.
+     */
+    private fun requestNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_ISLAND_NOTIFICATION,
+                )
+            }
+        }
+        return islandProbe.snapshot().postNotifications
     }
 
     private fun handleStartEcardBindHijack(
@@ -333,7 +421,9 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val CALENDAR_IMPORTER_CHANNEL = "techpie/calendar_importer"
         const val ECARD_BIND_CHANNEL = "techpie/ecard_bind"
+        const val ISLAND_CHANNEL = "techpie/island"
         const val REQUEST_CALENDAR_PERMISSIONS = 48291
+        const val REQUEST_ISLAND_NOTIFICATION = 48292
         const val REQUEST_VPN_CONSENT = 0x0ECB
         const val VPN_STATE_ATTEMPTS = 15
         const val VPN_STATE_INTERVAL_MS = 100L
