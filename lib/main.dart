@@ -22,6 +22,7 @@ import 'services/island_service.dart';
 import 'services/oa_gym_service.dart';
 import 'services/schedule_service.dart';
 import 'services/service_provider.dart';
+import 'services/spending_alert_service.dart';
 import 'services/storage_service.dart';
 import 'services/sync_service.dart';
 import 'services/theme_service.dart';
@@ -113,6 +114,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
     scheduleService,
     assignmentService,
   );
+  final spendingAlertService = SpendingAlertService(storageService);
 
   authService.onLogout = () async {
     // Third-party bindings persist across logouts — they will be used by the
@@ -188,6 +190,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       ecardBindService: ecardBindService,
       ecardWidgetService: ecardWidgetService,
       islandService: islandService,
+      spendingAlertService: spendingAlertService,
     ),
   );
 
@@ -321,6 +324,7 @@ class TechPieApp extends StatefulWidget {
   final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
   final IslandService? islandService;
+  final SpendingAlertService? spendingAlertService;
 
   const TechPieApp({
     super.key,
@@ -340,6 +344,7 @@ class TechPieApp extends StatefulWidget {
     required this.ecardBindService,
     this.ecardWidgetService,
     this.islandService,
+    this.spendingAlertService,
   });
 
   @override
@@ -467,6 +472,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         ecardBindService: widget.ecardBindService,
         ecardWidgetService: widget.ecardWidgetService,
         islandService: widget.islandService,
+        spendingAlertService: widget.spendingAlertService,
         child: MaterialApp(
           navigatorKey: _navigatorKey,
           scaffoldMessengerKey: rootMessengerKey,

@@ -21,6 +21,7 @@ import club.geekpie.techpie.island.IslandCapabilityProbe
 import club.geekpie.techpie.island.IslandForegroundService
 import club.geekpie.techpie.island.IslandFrame
 import club.geekpie.techpie.island.IslandNotificationFactory
+import club.geekpie.techpie.notification.SpendingNotificationBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -32,6 +33,7 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ecardWidgets: EcardWidgetBridge? = null
     private var ecardFeedback: EcardFeedback? = null
+    private var spendingAlerts: SpendingNotificationBridge? = null
 
     // The probe caches the focus-permission lookup and the sequence store keeps
     // the island's monotonic update counters; neither survives being rebuilt per
@@ -43,10 +45,12 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        ecardWidgets = EcardWidgetBridge(this, flutterEngine.dartExecutor.binaryMessenger).also {
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+        ecardWidgets = EcardWidgetBridge(this, messenger).also {
             it.capture(intent, notifyFlutter = false)
         }
-        ecardFeedback = EcardFeedback(this, flutterEngine.dartExecutor.binaryMessenger)
+        ecardFeedback = EcardFeedback(this, messenger)
+        spendingAlerts = SpendingNotificationBridge(this, messenger)
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -114,6 +118,8 @@ class MainActivity : FlutterActivity() {
         ecardWidgets = null
         ecardFeedback?.dispose()
         ecardFeedback = null
+        spendingAlerts?.dispose()
+        spendingAlerts = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

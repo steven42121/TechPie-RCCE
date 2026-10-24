@@ -203,6 +203,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final tpAuth = sp.thirdPartyAuthService;
     final campusCard = sp.campusCardService;
     final island = sp.islandService;
+    final spending = sp.spendingAlertService;
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useIosChrome || useLegacyIosChrome
@@ -464,6 +465,15 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: storage.islandEnabled,
                 onChanged: (value) =>
                     unawaited(_setIslandEnabled(island, value)),
+              ),
+            if (spending != null && spending.supported)
+              _AdaptiveSwitchTile(
+                usesIosLiquidGlass: useIosChrome,
+                secondary: const Icon(Icons.receipt_long_outlined),
+                title: 'Spending alerts',
+                subtitle: 'Announce a payment once the app reads it from the ledger',
+                value: storage.spendingAlertsEnabled,
+                onChanged: (value) => unawaited(spending.setEnabled(value)),
               ),
             ListTile(
               leading: const Icon(Icons.info_outline),

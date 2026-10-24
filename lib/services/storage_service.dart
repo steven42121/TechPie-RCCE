@@ -34,6 +34,8 @@ class StorageService {
   static const _deviceIdKey = 'device_id';
   static const _maskPersonalInfoKey = 'mask_personal_info';
   static const _islandEnabledKey = 'island_enabled';
+  static const _spendingAlertsEnabledKey = 'spending_alerts_enabled';
+  static const _alertedTransactionIdsKey = 'alerted_transaction_ids';
 
   final FlutterSecureStorage _secure;
   final SharedPreferences _prefs;
@@ -209,6 +211,27 @@ class StorageService {
   bool get islandEnabled => _prefs.getBool(_islandEnabledKey) ?? false;
   Future<void> setIslandEnabled(bool value) =>
       _prefs.setBool(_islandEnabledKey, value);
+
+  /// A receipt is expected news rather than an interruption, so this is on by
+  /// default and the user turns it off if they disagree.
+  bool get spendingAlertsEnabled =>
+      _prefs.getBool(_spendingAlertsEnabledKey) ?? true;
+  Future<void> setSpendingAlertsEnabled(bool value) =>
+      _prefs.setBool(_spendingAlertsEnabledKey, value);
+
+  /// Transaction ids already announced, oldest first. An id dropped by the cap
+  /// can only be re-announced if it reappears in a fresh page, which the
+  /// history never does.
+  static const _alertedIdsLimit = 100;
+
+  List<String> get alertedTransactionIds =>
+      _prefs.getStringList(_alertedTransactionIdsKey) ?? const <String>[];
+  Future<void> setAlertedTransactionIds(List<String> ids) {
+    final kept = ids.length > _alertedIdsLimit
+        ? ids.sublist(ids.length - _alertedIdsLimit)
+        : ids;
+    return _prefs.setStringList(_alertedTransactionIdsKey, kept);
+  }
 
   bool get useLocalhost =>
       !kReleaseMode && (_prefs.getBool(_useLocalhostKey) ?? false);
