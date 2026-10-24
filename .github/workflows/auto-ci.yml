@@ -1,0 +1,169 @@
+name: Auto CI (test APK)
+
+# Test-build pipeline for this fork only — not part of the upstream release
+# process. Every push to a tracked branch either replaces the APK on the
+# current version's release or opens a new one when pubspec.yaml moved:
+#
+#   same version, >100 lines added  -> rebuild, overwrite the asset in place
+#   same version, <=100 lines       -> skip (a no-op push is not worth an APK)
+#   new version                     -> tag v<version> and open a release for it
+#
+# The fork has no production keystore secrets, so builds are signed with the
+# debug key by default: install one of these only after uninstalling the
+# store-signed app. Adding ANDROID_KEYSTORE_BASE64 + ANDROID_KEYSTORE_PASSWORD
+# + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD to the fork's settings switches
+# every build to release signing without touching this file.
+
+on:
+  push:
+    branches: [master, "bionic/**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    name: Build APK and publish to the version's release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Decide what to do
+        id: decide
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\+[0-9]+)?$ ]]; then
+            echo "::error::Unrecognized pubspec version: $version"
+            exit 1
+          fi
+          tag="v$version"
+
+          # A new release is opened when this exact tag has no release yet.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            mode=replace
+            # Count the lines added since the push's base commit. After a
+            # force-push that SHA is unreachable, in which case there is no
+            # baseline to compare against — rebuild rather than guess.
+            if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              added="$(git diff --numstat "$BEFORE"..HEAD | awk '{added+=$1} END {print added+0}')"
+            else
+              # No baseline to measure against (force-push, first run): rebuild.
+              added=-1
+            fi
+            if [[ "$added" -ge 0 && "$added" -le 100 ]]; then
+              mode=skip
+            fi
+          else
+            mode=new-release
+          fi
+
+          prerelease=false
+          [[ "${version%%+*}" == *-* ]] && prerelease=true
+
+          {
+            echo "mode=$mode"
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+            echo "added_lines=$added"
+          } >> "$GITHUB_OUTPUT"
+          echo "mode=$mode tag=$tag added_lines=${added:-n/a}"
+
+      - name: Set up Java
+        if: steps.decide.outputs.mode != 'skip'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        if: steps.decide.outputs.mode != 'skip'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.27.4
+          cache: true
+
+      # The committed lock resolves through the China mirror (see .envrc).
+      - name: Resolve locked dependencies
+        if: steps.decide.outputs.mode != 'skip'
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: flutter pub get --enforce-lockfile
+
+      # Release signing, only when the fork has been given a keystore. All four
+      # values must be present or Gradle falls back to the debug key — which is
+      # exactly what an unsigned test build wants. An unset secret compares
+      # equal to '', so this step simply does not run until one is added.
+      - name: Restore release keystore (optional)
+        id: keystore
+        if: ${{ steps.decide.outputs.mode != 'skip' && secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/techpie-release.p12"
+          test -s "$RUNNER_TEMP/techpie-release.p12"
+          echo "path=$RUNNER_TEMP/techpie-release.p12" >> "$GITHUB_OUTPUT"
+
+      - name: Build release APK
+        if: steps.decide.outputs.mode != 'skip'
+        env:
+          # Empty when the restore step did not run; Gradle treats an empty
+          # value as absent and signs with the debug key instead.
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          set -euo pipefail
+          flutter build apk --release --no-pub \
+            --build-name "${VERSION%%+*}" \
+            --build-number "${VERSION##*+}"
+
+      - name: Publish to the release
+        if: steps.decide.outputs.mode != 'skip'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ steps.decide.outputs.mode }}
+          TAG: ${{ steps.decide.outputs.tag }}
+          PRERELEASE: ${{ steps.decide.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          test -f "$apk"
+          # One fixed asset name per version, so a rebuild overwrites the same
+          # file instead of stacking dated copies on the release page.
+          cp "$apk" "TechPie-${TAG#v}-android.apk"
+
+          if [[ "$MODE" == "new-release" ]]; then
+            gh release create "$TAG" "TechPie-${TAG#v}-android.apk" \
+              --title "Test build ${TAG#v}" \
+              --notes "$(printf 'Auto-built test APK from %s (%s).\n\nSigned with the debug key unless this fork has keystore secrets; uninstall any store-signed install first.' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" \
+              --prerelease="$PRERELEASE" \
+              --latest=false
+            echo "Opened release $TAG with the APK."
+          else
+            gh release upload "$TAG" "TechPie-${TAG#v}-android.apk" --clobber
+            echo "Replaced the APK on release $TAG."
+          fi
