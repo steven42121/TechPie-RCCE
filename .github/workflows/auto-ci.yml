@@ -53,6 +53,11 @@ jobs:
           fi
           tag="v$version"
 
+          # -1 means "rebuild": it is the default until a measured line count
+          # says otherwise, and it covers every path that never measures —
+          # force-pushes, first runs, and new releases alike.
+          added=-1
+
           # A new release is opened when this exact tag has no release yet.
           if gh release view "$tag" >/dev/null 2>&1; then
             mode=replace
@@ -61,9 +66,6 @@ jobs:
             # baseline to compare against — rebuild rather than guess.
             if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
               added="$(git diff --numstat "$BEFORE"..HEAD | awk '{added+=$1} END {print added+0}')"
-            else
-              # No baseline to measure against (force-push, first run): rebuild.
-              added=-1
             fi
             if [[ "$added" -ge 0 && "$added" -le 100 ]]; then
               mode=skip
