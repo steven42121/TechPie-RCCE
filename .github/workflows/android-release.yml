@@ -1,9 +1,16 @@
 name: Android Release
 
 on:
-  push:
-    tags:
-      - "android-v*"
+  # Tags are created by release.yml from pubspec.yaml, which then calls this
+  # workflow: a tag pushed with GITHUB_TOKEN cannot start a run, and a tag pushed
+  # by hand is what the release policy forbids. `workflow_dispatch` is the replay
+  # path for an existing tag.
+  workflow_call:
+    inputs:
+      tag:
+        description: Android release tag to build
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -12,17 +19,31 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  # The platform name is part of the group on purpose: concurrency groups are
+  # repository-wide and a group holds one *pending* entry, so a shared name makes
+  # sibling platform jobs cancel each other — 1.0.1-rc.2's Windows job was
+  # cancelled 1 second after it started, before any step ran, because Linux and
+  # Android were queued in the same group. See the note in CLAUDE.md → Releasing.
+  group: android-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
     name: Build signed Android release
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90 rather than 45: one release spent 43 minutes producing no output before
+    # Gradle started (a download stall, not this build) and was killed 90 seconds
+    # into the actual build, at 45m19s. The job is worth waiting out; a release
+    # that dies here leaves its tag and draft behind.
+    timeout-minutes: 90
+    # The deployment environment the signing job runs in. Today it carries no
+    # secrets and no protection rules: the ANDROID_* secrets are repository-scoped,
+    # so this only labels the deployment. It is declared because that is where they
+    # belong — `gh secret set <NAME> --env android-release`, once per secret,
+    # narrows them to this job — and a review rule would then gate that same job.
     environment: android-release
 
     steps:
@@ -31,27 +52,66 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Validate release request
         shell: bash
         env:
-          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$REQUESTED_TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)\+([0-9]+)$ ]]; then
-            echo "::error::Invalid Android release tag: $REQUESTED_TAG"
-            echo "Expected format: android-vX.Y.Z+B"
+          # Group 1 is the legacy `android-` prefix, 2-4 are X.Y.Z, 5 the
+          # pre-release name, 6 the build number: POSIX ERE has no
+          # non-capturing groups, hence the offset.
+          if [[ ! "$REQUESTED_TAG" =~ ^(android-)?v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?\+([0-9]+)$ ]]; then
+            echo "::error::Invalid release tag: $REQUESTED_TAG"
+            echo "Expected format: vX.Y.Z+B, or vX.Y.Z-rc.N+B for a pre-release"
             exit 1
           fi
-          build_name="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-          build_number="${BASH_REMATCH[4]}"
+          build_name="${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.${BASH_REMATCH[4]}"
+          prerelease="${BASH_REMATCH[5]}"
+          build_number="${BASH_REMATCH[6]}"
 
+          # The release name every artifact file is named after, from the one
+          # place that rule lives: `1.0.1`, or `1.0.1-rc.2` for a candidate. The
+          # build number is not part of it (CLAUDE.md → Artifact names).
+          release_name="$(scripts/release-name.sh "$REQUESTED_TAG")"
+
+          # pubspec.yaml is the single source of the app version; the tag only
+          # names an already-versioned commit. Refuse to publish a build whose
+          # store version and source version disagree.
+          # The platform version stamp is X.Y.Z, so a pre-release suffix in
+          # pubspec (declared, or the -rc.N release.yml derives) is not part of
+          # what this tag must match.
+          pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
+          pubspec_name="${pubspec_version%%+*}"
+          pubspec_base="${pubspec_name%%-*}"
+          pubspec_code="${pubspec_version##*+}"
+          if [[ "$pubspec_version" == "$pubspec_code" ]]; then
+            echo "::error::pubspec.yaml version $pubspec_version has no '+N' build number; a release needs one and pubspec.yaml is its only source."
+            exit 1
+          fi
+          if [[ "$pubspec_base" != "$build_name" || "$pubspec_code" != "$build_number" ]]; then
+            echo "::error::Tag $REQUESTED_TAG names $build_name+$build_number, but pubspec.yaml is $pubspec_version."
+            exit 1
+          fi
+
+          # The tag must name a commit on a release ref: master, or a
+          # release/X.Y.Z branch — the stable bump commit lives only on that
+          # branch, so master alone would refuse every stable release.
           tag_sha="$(git rev-list -n 1 "$REQUESTED_TAG")"
-          git fetch --no-tags origin master:refs/remotes/origin/master
-          if ! git merge-base --is-ancestor "$tag_sha" origin/master; then
-            echo "::error::Release tag must point to a commit reachable from master."
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          reachable=false
+          while read -r ref; do
+            if git merge-base --is-ancestor "$tag_sha" "$ref"; then
+              reachable=true
+              break
+            fi
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin |
+            grep -E '^origin/(master|main|release/)')
+          if [[ "$reachable" != "true" ]]; then
+            echo "::error::Release tag must point to a commit reachable from master or a release/* branch."
             exit 1
           fi
 
@@ -59,6 +119,8 @@ jobs:
             echo "TAG_NAME=$REQUESTED_TAG"
             echo "BUILD_NAME=$build_name"
             echo "BUILD_NUMBER=$build_number"
+            echo "RELEASE_NAME=$release_name"
+            echo "PRERELEASE=$([[ -n "$prerelease" ]] && echo true || echo false)"
           } >> "$GITHUB_ENV"
 
       - name: Set up Java
@@ -67,14 +129,35 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Cache Gradle
+        # A cold release build has to fetch the Gradle distribution and every
+        # plugin before it compiles anything. This does not fix a stall — the
+        # budget below is what does — but it removes the largest thing a cold
+        # build waits for.
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.27.4
+          flutter-version: 3.41.9
           cache: true
 
+      # The pub cache, defined once in .github/actions/pub-cache. Read-only: the
+      # plan job owns the Linux copy.
+      - uses: ./.github/actions/pub-cache
+
       - name: Resolve locked dependencies
+        # The committed lock resolves through the China mirror (see .envrc).
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
         run: flutter pub get --enforce-lockfile
 
       - name: Restore signing key
@@ -95,7 +178,7 @@ jobs:
           test -s "$keystore_path"
           echo "ANDROID_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build signed ARM64 APK
+      - name: Build signed ARM64 and ARM32 split APKs, plus the universal APK
         shell: bash
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -118,11 +201,22 @@ jobs:
             --release \
             --no-pub \
             --split-per-abi \
-            --target-platform android-arm64 \
+            --target-platform android-arm64,android-arm \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER"
 
-      - name: Verify signature and collect APK
+          # The universal APK: one file carrying every ABI, for the devices the
+          # two splits do not cover — x86_64 emulators above all. Its versionCode
+          # is `+B` itself while the splits carry ABI×1000 + B, so replacing a
+          # split install with this one is a downgrade the installer refuses
+          # (CLAUDE.md → Artifact names).
+          flutter build apk \
+            --release \
+            --no-pub \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER"
+
+      - name: Verify signatures and collect APKs
         shell: bash
         env:
           EXPECTED_APPLICATION_ID: club.geekpie.techpie
@@ -136,24 +230,86 @@ jobs:
           test -x "$aapt"
           test -x "$apksigner"
 
-          apk=build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-          apk_application_id="$("$aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-          if [[ "$apk_application_id" != "$EXPECTED_APPLICATION_ID" ]]; then
-            echo "::error::APK application ID does not match the production application ID."
-            exit 1
-          fi
-          "$apksigner" verify --verbose --print-certs "$apk"
-          apk_cert="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^.*certificate SHA-256 digest: //p' | sed -n '1p' | tr '[:upper:]' '[:lower:]')"
-          if [[ "$apk_cert" != "$EXPECTED_CERT_SHA256" ]]; then
-            echo "::error::APK signing certificate does not match the production certificate."
-            exit 1
-          fi
-          cp "$apk" "dist/TechPie-${TAG_NAME}-arm64.apk"
+          # Verify one APK and collect it under its rule name:
+          # TechPie-<version>-android-<arch>.apk, where <version> is the release
+          # name — 1.0.1, or 1.0.1-rc.2 for a candidate (CLAUDE.md → Artifact
+          # names). Two candidates of one version must not produce two files a
+          # user cannot tell apart.
+          #
+          # $3 is the ABI a split must contain *only*; empty means the universal
+          # APK, which has to contain every ABI instead.
+          check_and_collect() {
+            local apk="$1" token="$2" expect_abi="$3" badging native cert application_id
+            badging="$("$aapt" dump badging "$apk")"
 
-      - name: Upload signed APK
+            application_id="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
+            if [[ "$application_id" != "$EXPECTED_APPLICATION_ID" ]]; then
+              echo "::error::$apk has application ID $application_id, not the production one."
+              exit 1
+            fi
+
+            native="$(sed -n 's/^native-code: //p' <<< "$badging")"
+            if [[ -n "$expect_abi" ]]; then
+              if [[ "$native" != "'$expect_abi'" ]]; then
+                echo "::error::$apk must contain only $expect_abi native libraries, but has $native."
+                exit 1
+              fi
+            elif [[ "$native" != *"arm64-v8a"* || "$native" != *"armeabi-v7a"* || "$native" != *"x86_64"* ]]; then
+              echo "::error::$apk is not universal: native-code is $native."
+              exit 1
+            fi
+
+            "$apksigner" verify --verbose --print-certs "$apk"
+            cert="$("$apksigner" verify --print-certs "$apk" |
+              sed -n 's/^.*certificate SHA-256 digest: //p' | sed -n '1p' | tr '[:upper:]' '[:lower:]')"
+            if [[ "$cert" != "$EXPECTED_CERT_SHA256" ]]; then
+              echo "::error::$apk is not signed with the production certificate."
+              exit 1
+            fi
+
+            cp "$apk" "dist/TechPie-${RELEASE_NAME}-android-${token}.apk"
+          }
+
+          apks=build/app/outputs/flutter-apk
+          check_and_collect "$apks/app-arm64-v8a-release.apk" arm64v8 arm64-v8a
+          check_and_collect "$apks/app-armeabi-v7a-release.apk" arm32v7 armeabi-v7a
+          check_and_collect "$apks/app-release.apk" universal ""
+
+      - name: Upload signed APKs
         uses: actions/upload-artifact@v7
         with:
-          name: TechPie-${{ env.TAG_NAME }}
+          name: TechPie-${{ env.RELEASE_NAME }}-android
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Attach the APKs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          title="$(git for-each-ref --format='%(contents:subject)' "refs/tags/$TAG_NAME")"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            # The normal path: release.yml opened the draft, so this only adds
+            # the assets. A published release refuses the upload, which is the
+            # intended refusal — its assets are what the tag published. The
+            # checksums for *every* platform's assets are the publish job's,
+            # written once the last of them has attached.
+            scripts/attach-release-asset.sh "$TAG_NAME" dist/*.apk
+            echo "Attached the APKs to the existing release $TAG_NAME."
+          else
+            # Standalone replay of this workflow (workflow_dispatch with a tag
+            # whose release never got created). Still a draft on purpose:
+            # release.yml is what publishes a release.
+            gh release create "$TAG_NAME" dist/*.apk \
+              --verify-tag \
+              --draft \
+              --title "$title" \
+              --notes "$(git for-each-ref --format='%(contents:body)' "refs/tags/$TAG_NAME")" \
+              --prerelease="$PRERELEASE"
+            echo "Draft release $TAG_NAME created; release.yml publishes it."
+          fi

@@ -1,15 +1,29 @@
+import 'dart:async';
+
 import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 
+import '../../features/campus_card/app/app_providers.dart';
 import '../../pages/assignments_page.dart';
+import '../../pages/campus_card_page.dart';
 import '../../pages/home_page.dart';
 import '../../pages/schedule_page.dart';
 import '../../pages/settings_page.dart';
 import '../../utils/adaptive_layout.dart';
 import '../../utils/platform.dart';
+import '../../widgets/adaptive_page_navigation.dart';
 import 'app_destination.dart';
 import 'desktop/desktop_shell.dart';
 import 'mobile_shell.dart';
+
+/// A campus-card entry the host asked for — a home-screen widget tap, a
+/// shortcut, a `techpie://ecard/pay` link — that has not been shown yet.
+///
+/// The shell owns the push because the shell is what knows where the page
+/// belongs: inside the selected destination's stack on a wide window, on the
+/// root navigator on a phone. A value set before the shell mounts waits for it,
+/// which is what a cold start needs.
+final appShellPendingEcardEntry = ValueNotifier<CampusCardEntry?>(null);
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -19,9 +33,21 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  // Temporarily disabled: the wide-window sidebar (DesktopShell) is turned
+  // off so every window width uses MobileShell's bottom nav bar instead.
+  // Flip this back to true to restore the sidebar at width >= 600. The
+  // nav-bar-clearance check in adaptive_feedback.dart was changed to match —
+  // re-enabling this alone is not enough, see that call site as well.
+  static const bool _desktopShellEnabled = false;
+
   int _selectedIndex = 0;
   int _previousSelectedIndex = 0;
   bool _sidebarCollapsed = false;
+
+  /// One stack per destination, and a key for each: the content navigator is
+  /// rebuilt when the destination changes, and two live navigators must not
+  /// share one GlobalKey.
+  final _contentNavigatorKeys = <int, GlobalKey<NavigatorState>>{};
   static const List<AppDestination> _destinations = [
     AppDestination(
       label: 'Home',
@@ -57,6 +83,41 @@ class _AppShellState extends State<AppShell> {
     ),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    appShellPendingEcardEntry.addListener(_showPendingEcardEntry);
+    if (appShellPendingEcardEntry.value != null) {
+      // Deferred: a push during the first build is a build-time side effect.
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _showPendingEcardEntry(),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    appShellPendingEcardEntry.removeListener(_showPendingEcardEntry);
+    super.dispose();
+  }
+
+  /// Pushes the entry the host asked for into the destination the user is on.
+  void _showPendingEcardEntry() {
+    final entry = appShellPendingEcardEntry.value;
+    if (entry == null || !mounted) return;
+    appShellPendingEcardEntry.value = null;
+    // Inside the selected destination's stack on a wide window (the sidebar
+    // stays), on the root navigator on a phone — the same place any other page
+    // goes.
+    final nested = _contentNavigatorKeys[_selectedIndex]?.currentContext;
+    unawaited(
+      pushAdaptivePage<void>(
+        nested ?? context,
+        builder: (_) => CampusCardPage(entry: entry),
+      ),
+    );
+  }
+
   void _onDestinationSelected(int index) {
     if (index == _selectedIndex) return;
     _previousSelectedIndex = _selectedIndex;
@@ -78,11 +139,22 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _buildDesktopContentNavigator(Widget pageView) {
-    return Navigator(
-      key: ValueKey('desktop-content-$_selectedIndex'),
-      onGenerateRoute: (settings) => MaterialPageRoute<void>(
-        settings: settings,
-        builder: (context) => pageView,
+    final navigatorKey = _contentNavigatorKeys.putIfAbsent(
+      _selectedIndex,
+      GlobalKey<NavigatorState>.new,
+    );
+
+    // The same reason the settings page needs it: this stack holds the pages a
+    // destination pushed, so the system back has to reach it rather than the
+    // root navigator, which only has the shell on it.
+    return NavigatorPopHandler(
+      onPopWithResult: (_) => navigatorKey.currentState?.pop(),
+      child: Navigator(
+        key: navigatorKey,
+        onGenerateRoute: (settings) => adaptivePageRoute<void>(
+          settings: settings,
+          builder: (context) => pageView,
+        ),
       ),
     );
   }
@@ -92,7 +164,8 @@ class _AppShellState extends State<AppShell> {
     final windowSizeClass = appWindowSizeClassOf(context);
     final pageView = _buildPageView(context);
 
-    if (windowSizeClass == AppWindowSizeClass.expanded) {
+    if (_desktopShellEnabled &&
+        windowSizeClass == AppWindowSizeClass.expanded) {
       return DesktopShell(
         destinations: _destinations,
         selectedIndex: _selectedIndex,
@@ -103,7 +176,8 @@ class _AppShellState extends State<AppShell> {
       );
     }
 
-    if (windowSizeClass == AppWindowSizeClass.medium) {
+    if (_desktopShellEnabled &&
+        windowSizeClass == AppWindowSizeClass.medium) {
       return DesktopShell(
         destinations: _destinations,
         selectedIndex: _selectedIndex,

@@ -1,16 +1,19 @@
 import 'dart:async';
+import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:techpie/services/auth_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../models/third_party_account.dart';
 import '../services/service_provider.dart';
 import '../services/sync_service.dart';
 import '../services/theme_service.dart';
-import '../services/third_party_auth_service.dart';
+import '../services/update_service.dart';
 import '../utils/adaptive_layout.dart';
 import '../utils/platform.dart';
+import '../utils/product_version.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_confirmation_button.dart';
@@ -21,10 +24,14 @@ import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/update_dialogs.dart';
 import 'debug_log_page.dart';
+import 'debug_webview_page.dart';
+import 'developer_lab_page.dart';
 import 'login_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
+import 'watch_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -35,6 +42,13 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   String _appVersion = '';
+  bool _checkingUpdate = false;
+  bool? _isPersonalInfoBlurred;
+  bool _wasVisible = false;
+
+  /// The stack a settings subpage is pushed onto in a wide window. A field, not
+  /// a local: a GlobalKey rebuilt every frame would drop the stack with it.
+  final _nestedNavigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -42,23 +56,104 @@ class _SettingsPageState extends State<SettingsPage> {
     unawaited(_loadAppVersion());
   }
 
-  Future<void> _loadAppVersion() async {
-    final info = await PackageInfo.fromPlatform();
-    if (!mounted) return;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // ignore: deprecated_member_use
+    final isVisible = TickerMode.of(context);
+    if (isVisible && !_wasVisible) {
+      _isPersonalInfoBlurred =
+          ServiceProvider.of(context).storageService.maskPersonalInfo;
+    }
+    _wasVisible = isVisible;
+  }
+
+  void _togglePersonalInfoBlur() {
     setState(() {
-      _appVersion = info.buildNumber.isNotEmpty
-          ? '${info.version}+${info.buildNumber}'
-          : info.version;
+      _isPersonalInfoBlurred = !(_isPersonalInfoBlurred ?? true);
     });
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      if (info.version.isEmpty) {
+        // The tile would read "Version Unknown" with no clue why: the plugin
+        // resolves but its source (an OHOS bundle, Linux's version.json) came
+        // back empty.
+        debugPrint(
+          'PackageInfo returned an empty version '
+          '(appName="${info.appName}", packageName="${info.packageName}", '
+          'buildNumber="${info.buildNumber}")',
+        );
+      }
+      setState(() {
+        _appVersion = info.buildNumber.isNotEmpty
+            ? '${info.version}+${info.buildNumber}'
+            : info.version;
+      });
+    } catch (error) {
+      // Never let the tile's failure take the page down, but do say why.
+      debugPrint('PackageInfo.fromPlatform failed: $error');
+    }
+  }
+
+  /// Checks GitHub for a release newer than the one running, and offers it.
+  ///
+  /// The answer comes from the releases page rather than our backend, so it
+  /// keeps working when the backend does not and needs no account. Cancelling
+  /// the offer changes nothing; accepting it opens the release page, where the
+  /// build for this platform lives.
+  Future<void> _checkForUpdate() async {
+    final updateService = ServiceProvider.of(context).updateService;
+    final current = ProductVersion.tryParse(_appVersion);
+    if (current == null) {
+      await showAdaptiveAlertDialog<void>(
+        context: context,
+        title: '无法检查更新',
+        message: '当前版本号（$_appVersion）无法识别，没法与 GitHub 上的版本比较。',
+        actions: const [AdaptiveAlertAction<void>(label: '好')],
+      );
+      return;
+    }
+
+    setState(() => _checkingUpdate = true);
+    try {
+      final release = await updateService.checkForUpdate(current);
+      if (!mounted) return;
+
+      if (release == null) {
+        await showUpToDateDialog(context, _appVersion);
+        return;
+      }
+      await showUpdateAvailableDialog(context, release);
+    } on UpdateCheckException catch (error) {
+      if (!mounted) return;
+      // The manual check is the one that reports everything, including the way
+      // out that does not depend on this app reaching GitHub at all.
+      await showUpdateFailureDialog(context, message: error.message);
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (usesSidebarLayout(context)) {
-      return Navigator(
-        onGenerateRoute: (settings) => MaterialPageRoute<void>(
-          settings: settings,
-          builder: (context) => _buildSettingsScaffold(context),
+      // A wide window gives the settings subpages their own stack, which is what
+      // makes them feel like pages rather than a full-screen push. The system back
+      // has to be told about that stack: without NavigatorPopHandler the gesture
+      // goes to the root navigator, which shows the shell and has nothing to pop,
+      // so it closes the app instead of leaving the subpage.
+      return NavigatorPopHandler(
+        onPopWithResult: (_) => _nestedNavigatorKey.currentState?.pop(),
+        child: Navigator(
+          key: _nestedNavigatorKey,
+          onGenerateRoute: (settings) => adaptivePageRoute<void>(
+            settings: settings,
+            builder: (context) => _buildSettingsScaffold(context),
+          ),
         ),
       );
     }
@@ -74,6 +169,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final storage = sp.storageService;
     final themeService = sp.themeService;
     final tpAuth = sp.thirdPartyAuthService;
+    final campusCard = sp.campusCardService;
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useIosChrome || useLegacyIosChrome
@@ -89,45 +185,67 @@ class _SettingsPageState extends State<SettingsPage> {
             )
           : const BlurredAppBar(title: Text('Settings')),
       body: ListenableBuilder(
-        listenable: Listenable.merge([auth, logger, themeService, tpAuth]),
-        builder: (context, _) => ListView(
-          padding: EdgeInsets.only(
-            top: topInset,
-            bottom: AppShellMetrics.bottomContentPaddingOf(context),
-          ),
-          children: [
-            // Account section
-            _sectionHeader(theme, 'Account'),
-            if (auth.isLoggedIn) ...[
-              ListTile(
-                leading: const Icon(Icons.person),
-                title: Text(
-                  auth.session!.userName.isNotEmpty
-                      ? auth.session!.userName
-                      : auth.session!.userId,
-                ),
-                subtitle: Text(
-                  [
-                    'GeekPie Uni-Auth',
-                    if (auth.session!.userId.isNotEmpty) auth.session!.userId,
-                  ].join(' · '),
-                ),
-              ),
-              _CpdailyBindingTile(tpAuth: tpAuth),
-              ListTile(
-                leading: const Icon(Icons.account_tree_outlined),
-                title: const Text('Linked accounts'),
-                subtitle: Text(
-                  '${tpAuth.boundPlatforms.length} bound · Gradescope / Hydro / eGate',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const ThirdPartyAccountsPage(),
+        listenable: Listenable.merge([
+          auth,
+          logger,
+          themeService,
+          tpAuth,
+          campusCard,
+          sp.syncService,
+        ]),
+        builder: (context, _) {
+          final session = auth.session;
+          return ListView(
+            padding: EdgeInsets.only(
+              top: topInset,
+              bottom: AppShellMetrics.bottomContentPaddingOf(context),
+            ),
+            children: [
+              // Account section
+              _sectionHeader(theme, 'Account'),
+              if (session != null) ...[
+                Semantics(
+                  button: true,
+                  label: (_isPersonalInfoBlurred ?? true)
+                      ? 'Personal info hidden, tap to show'
+                      : 'Personal info shown, tap to hide',
+                  child: ListTile(
+                    leading: const Icon(Icons.person),
+                    title: ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                      enabled: _isPersonalInfoBlurred ?? true,
+                      child: Text(
+                        session.userName.isNotEmpty
+                            ? session.userName
+                            : session.userId,
+                      ),
+                    ),
+                    subtitle: ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                      enabled: _isPersonalInfoBlurred ?? true,
+                      child: Text(
+                        [
+                          'GeekPie Uni-Auth',
+                          if (session.userId.isNotEmpty) session.userId,
+                        ].join(' · '),
+                      ),
+                    ),
+                    trailing: IconButton(
+                      icon: Icon(
+                        (_isPersonalInfoBlurred ?? true)
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      tooltip: (_isPersonalInfoBlurred ?? true)
+                          ? 'Show personal info'
+                          : 'Hide personal info',
+                      onPressed: _togglePersonalInfoBlur,
+                    ),
+                    onTap: _togglePersonalInfoBlur,
                   ),
                 ),
-              ),
+              ],
+            if (auth.isLoggedIn) ...[
               ListTile(
                 leading: const Icon(Icons.cloud_sync_outlined),
                 title: const Text('Cloud sync'),
@@ -137,6 +255,18 @@ class _SettingsPageState extends State<SettingsPage> {
                   pushAdaptivePage<void>(
                     context,
                     builder: (_) => const SyncSettingsPage(),
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_remove_outlined),
+                title: const Text('申请注销账号'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () => unawaited(
+                  launchUrl(
+                    Uri.parse(
+                        'https://techpie.geekpie.club/privacy#account-deletion',),
+                    mode: LaunchMode.externalApplication,
                   ),
                 ),
               ),
@@ -180,7 +310,47 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: const Text('通过 GeekPie Uni-Auth 登录'),
                 onTap: () => unawaited(presentLoginPage(context)),
               ),
+            // Bindings are configured independently of the primary account, so
+            // this row sits outside the signed-in block (it replaces the old
+            // OPENID row, which was reachable the same way).
+            ListTile(
+              leading: const Icon(Icons.account_tree_outlined),
+              title: const Text('Linked accounts'),
+              subtitle: Text(
+                '${tpAuth.boundPlatforms.length + (campusCard.configured ? 1 : 0)} bound · eCard / eGate / Gradescope / Hydro',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => unawaited(
+                pushAdaptivePage<void>(
+                  context,
+                  builder: (_) => const ThirdPartyAccountsPage(),
+                ),
+              ),
+            ),
             const Divider(),
+
+            ListTile(
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('隐私政策与使用支持'),
+              trailing: const Icon(Icons.open_in_new),
+              onTap: () => unawaited(
+                launchUrl(
+                  Uri.parse('https://techpie.geekpie.club/privacy'),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+            ),
+            const Divider(),
+            if (isIos())
+              ListTile(
+                leading: const Icon(Icons.watch_outlined),
+                title: const Text('Apple Watch'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(context,
+                      builder: (_) => const WatchSettingsPage(),),
+                ),
+              ),
 
             // Appearance section
             _sectionHeader(theme, 'Appearance'),
@@ -192,10 +362,21 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailing: AdaptiveSelect(
                   value: themeService.mode.name,
                   placeholder: 'Choose theme',
+                  accessibilityLabel: 'Theme',
+                  useIosNativeMenu: true,
                   width: 156,
                   options: [
                     for (final mode in AppThemeMode.values)
-                      AdaptiveSelectOption(value: mode.name, label: mode.label),
+                      AdaptiveSelectOption(
+                        value: mode.name,
+                        label: mode.label,
+                        sfSymbol: switch (mode) {
+                          AppThemeMode.system => 'circle.lefthalf.filled',
+                          AppThemeMode.light => 'sun.max',
+                          AppThemeMode.dark => 'moon',
+                          AppThemeMode.amoled => 'moon.fill',
+                        },
+                      ),
                   ],
                   onChanged: (value) {
                     final mode = AppThemeMode.values.firstWhere(
@@ -228,6 +409,19 @@ class _SettingsPageState extends State<SettingsPage> {
 
             // General section
             _sectionHeader(theme, 'General'),
+            _AdaptiveSwitchTile(
+              usesIosLiquidGlass: useIosChrome,
+              secondary: const Icon(Icons.visibility_off_outlined),
+              title: 'Mask personal info',
+              subtitle: 'Blur sensitive profile details by default',
+              value: storage.maskPersonalInfo,
+              onChanged: (value) {
+                unawaited(storage.setMaskPersonalInfo(value));
+                setState(() {
+                  _isPersonalInfoBlurred = value;
+                });
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.info_outline),
               title: const Text('About'),
@@ -236,36 +430,76 @@ class _SettingsPageState extends State<SettingsPage> {
                     ? 'Version Unknown'
                     : 'Version $_appVersion',
               ),
+              // Tapping the version is the whole affordance: it is where a user
+              // looks when they wonder whether they are up to date.
+              trailing: _checkingUpdate
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              onTap: _appVersion.isEmpty || _checkingUpdate
+                  ? null
+                  : () => unawaited(_checkForUpdate()),
             ),
-            const Divider(),
+            if (!kReleaseMode) const Divider(),
 
             // Developer section
-            _sectionHeader(theme, 'Developer'),
-            _AdaptiveSwitchTile(
-              usesIosLiquidGlass: useIosChrome,
-              secondary: const Icon(Icons.bug_report_outlined),
-              title: 'Debug mode',
-              subtitle: 'Log all API requests',
-              value: logger.enabled,
-              onChanged: (value) {
-                logger.enabled = value;
-                unawaited(storage.setDebugMode(value));
-              },
-            ),
-            _AdaptiveSwitchTile(
-              usesIosLiquidGlass: useIosChrome,
-              secondary: const Icon(Icons.dns_outlined),
-              title: 'Use localhost',
-              subtitle: isAndroid()
-                  ? 'Connect to local server via 10.0.2.2:3000'
-                  : 'Connect to local development server',
-              value: storage.useLocalhost,
-              onChanged: (value) {
-                unawaited(storage.setUseLocalhost(value));
-                setState(() {});
-              },
-            ),
-            if (logger.enabled)
+            if (!kReleaseMode) _sectionHeader(theme, 'Developer'),
+            if (!kReleaseMode)
+              _AdaptiveSwitchTile(
+                usesIosLiquidGlass: useIosChrome,
+                secondary: const Icon(Icons.bug_report_outlined),
+                title: 'Debug mode',
+                subtitle: 'Log all API requests',
+                value: logger.enabled,
+                onChanged: (value) {
+                  logger.enabled = value;
+                  unawaited(storage.setDebugMode(value));
+                },
+              ),
+            if (!kReleaseMode)
+              _AdaptiveSwitchTile(
+                usesIosLiquidGlass: useIosChrome,
+                secondary: const Icon(Icons.dns_outlined),
+                title: 'Use localhost',
+                subtitle: isAndroid()
+                    ? 'Connect to local server via 10.0.2.2:3000'
+                    : 'Connect to local development server',
+                value: storage.useLocalhost,
+                onChanged: (value) {
+                  unawaited(storage.setUseLocalhost(value));
+                  setState(() {});
+                },
+              ),
+            if (!kReleaseMode)
+              ListTile(
+                leading: const Icon(Icons.science_outlined),
+                title: const Text('WebView Test'),
+                subtitle: const Text('Bridge injection and custom URL testing'),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const DebugWebViewPage(
+                      initialUrl: 'http://127.0.0.1:8000/bridge_test.html',
+                    ),
+                  ),
+                ),
+              ),
+            if (!kReleaseMode)
+              ListTile(
+                leading: const Icon(Icons.vibration),
+                title: const Text('Developer Lab'),
+                subtitle: const Text('Play every waveform and sound'),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const DeveloperLabPage(),
+                  ),
+                ),
+              ),
+            if (!kReleaseMode && logger.enabled)
               ListTile(
                 leading: const Icon(Icons.list_alt),
                 title: const Text('View Logs'),
@@ -278,9 +512,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
           ],
-        ),
-      ),
-    );
+        );
+      },
+    ),
+  );
   }
 
   Future<void> _confirmLogout(AuthService auth) async {
@@ -553,43 +788,6 @@ class _AdaptiveSwitchTile extends StatelessWidget {
       subtitle: Text(subtitle),
       trailing: AdaptiveSwitch(value: value, onChanged: onChanged),
       onTap: () => onChanged(!value),
-    );
-  }
-}
-
-class _CpdailyBindingTile extends StatelessWidget {
-  final ThirdPartyAuthService tpAuth;
-
-  const _CpdailyBindingTile({required this.tpAuth});
-
-  @override
-  Widget build(BuildContext context) {
-    final cpdaily = tpAuth.account(ThirdPartyPlatform.cpdaily);
-    final bound = cpdaily != null;
-    final theme = Theme.of(context);
-
-    return ListTile(
-      leading: Icon(
-        bound ? Icons.vpn_key : Icons.vpn_key_outlined,
-        color: bound ? theme.colorScheme.primary : null,
-      ),
-      title: const Text('CpDaily / IDS'),
-      subtitle: Text(
-        bound
-            ? '已绑定 · ${cpdaily.name ?? cpdaily.sid ?? cpdaily.account}'
-            : '未绑定 · 需要绑定以启用课表和考试功能',
-      ),
-      trailing: bound
-          ? Icon(Icons.check_circle, color: theme.colorScheme.primary, size: 20)
-          : const Icon(Icons.chevron_right),
-      onTap: bound
-          ? null
-          : () => unawaited(
-                pushAdaptivePage<void>(
-                  context,
-                  builder: (_) => const ThirdPartyAccountsPage(),
-                ),
-              ),
     );
   }
 }

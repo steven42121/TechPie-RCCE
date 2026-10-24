@@ -9,7 +9,6 @@ import '../services/service_provider.dart';
 import '../services/uni_auth_service.dart';
 import '../utils/platform.dart';
 import '../widgets/adaptive_button.dart';
-import '../widgets/adaptive_feedback.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
 
@@ -84,7 +83,7 @@ Future<void> _presentNativeLoginSheet({
           // The SDK manages its own WebView — no BuildContext needed.
           final tokens = await uniAuthService.loginSdkOnly();
           await authService.geekpieLogin(tokens);
-          unawaited(scheduleService.fetchAll());
+          scheduleService.requestFetch(force: true);
         });
       default:
         throw MissingPluginException(
@@ -122,20 +121,12 @@ class _LoginPageState extends State<LoginPage> {
       final tokens = await sp.uniAuthService.login(context);
       await sp.authService.geekpieLogin(tokens);
       if (mounted) {
-        unawaited(sp.scheduleService.fetchAll());
+        sp.scheduleService.requestFetch(force: true);
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        if (isIos()) {
-          setState(() => _inlineMessage = '登录失败：$e');
-        } else {
-          showAdaptiveFeedback(
-            context: context,
-            message: '登录失败: $e',
-            style: AdaptiveFeedbackStyle.error,
-          );
-        }
+        setState(() => _inlineMessage = '登录失败：$e');
       }
     } finally {
       if (mounted) setState(() => _loading = false);

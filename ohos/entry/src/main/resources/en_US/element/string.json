@@ -11,6 +11,14 @@
     {
       "name": "EntryAbility_label",
       "value": "TechPie"
+    },
+    {
+      "name": "camera_reason",
+      "value": "Use the camera to scan check-in codes and campus-card payment codes"
+    },
+    {
+      "name": "ecard_shortcut_label",
+      "value": "Pay Code"
     }
   ]
 }

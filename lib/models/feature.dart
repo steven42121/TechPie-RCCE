@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../features/campus_card/app/app_providers.dart';
+import '../pages/campus_card_page.dart';
+import '../pages/egate_app_page.dart';
 import '../pages/elrc_recordings_page.dart';
 import '../pages/oa_gym_page.dart';
 import '../widgets/adaptive_page_navigation.dart';
@@ -11,8 +14,8 @@ enum FeatureMode {
 
 enum CookieType {
   ecourse,
-  egate,
   eams,
+  egateApp,
 }
 
 class Feature {
@@ -58,9 +61,21 @@ final featureEntries = <Feature>[
     id: 'student_leave',
     description: '学生请假',
     mode: FeatureMode.webviewWithCookie,
-    url: 'https://egate.shanghaitech.edu.cn/xsfw/sys/xsqjapp/*default/index.do',
-    cookieType: CookieType.egate,
+    url: 'https://egate.shanghaitech.edu.cn/xsfw/sys/ydxsqjxs/index.html#/',
+    cookieType: CookieType.egateApp,
     icon: const Icon(Icons.door_front_door),
+  ),
+  Feature(
+    id: 'campus_card',
+    description: '校园卡',
+    mode: FeatureMode.native,
+    nativeEntry: (context) => pushAdaptivePage<void>(
+      context,
+      builder: (_) => const CampusCardPage(
+        entry: CampusCardEntry.paymentCode,
+      ),
+    ),
+    icon: const Icon(Icons.account_balance_wallet_outlined),
   ),
   Feature(
     id: 'oa_gym',
@@ -71,6 +86,16 @@ final featureEntries = <Feature>[
       builder: (_) => const OaGymPage(),
     ),
     icon: const Icon(Icons.sports_tennis),
+  ),
+  Feature(
+    id: 'egate_xshd',
+    description: '学生活动',
+    mode: FeatureMode.native,
+    nativeEntry: (context) => pushAdaptivePage<void>(
+      context,
+      builder: (_) => const EgateAppPage(),
+    ),
+    icon: const Icon(Icons.qr_code_scanner),
   ),
 ];
 

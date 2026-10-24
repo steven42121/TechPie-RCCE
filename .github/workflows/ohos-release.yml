@@ -1,0 +1,143 @@
+name: OHOS Release
+
+# Publishes an *unsigned* hap for a release. Unsigned is deliberate: signing a
+# hap needs the developer's certificate and provision profile, which must not
+# live on a build runner, and an unsigned hap is what a maintainer, a tester or
+# a store pipeline can sign themselves.
+#
+# The toolchain arrives as a container image (ci/Dockerfile.ohos-buildenv,
+# published by ci/publish-buildenv.sh) because it cannot be installed here: the
+# HarmonyOS SDK sits behind a Huawei developer login and the OHOS Flutter fork is
+# ~2 GB of git history. The image is baked once on a machine that already has
+# both, pushed to a private GHCR package, and pulled as a `container:` — so this
+# job runs on a stock `ubuntu-24.04` runner. There is nothing to turn on and no
+# self-hosted runner to keep alive.
+#
+# Pulling the image needs `packages: read`, and the package must be linked to
+# this repository (the image carries an `org.opencontainers.image.source` label
+# for exactly that). A fork cannot pull it, which is part of why this job is only
+# ever reached from a release run or a dispatch — never from a pull request.
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Tag of the draft GitHub release to attach the hap to
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag of the draft GitHub release to attach the hap to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+concurrency:
+  group: ohos-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  unsigned-hap:
+    name: Build unsigned hap
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    # The container's default shell is sh, which does not know `pipefail`.
+    defaults:
+      run:
+        shell: bash
+    container:
+      # Bump by re-running ci/publish-buildenv.sh and pasting the tag it prints.
+      # The tag names the toolchain versions baked into the image, and is the
+      # only thing that says which toolchain this pipeline was tested against —
+      # so it is written out here rather than kept in a repository variable,
+      # where a change would not show up in review. (`container.image` accepts
+      # only the github/needs/strategy/matrix/vars/inputs contexts, so this has
+      # to be a literal — an `env:` entry could not be read here even if it held
+      # the same string.)
+      image: ghcr.io/hezebang/techpie-ohos-buildenv:26.0.0.851-3.41.9_ohos-1.0.2
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.release_tag }}
+
+      # The image asserts its own toolchain at build time (see the end of
+      # ci/Dockerfile.ohos-buildenv); this catches the other failure mode — a
+      # workflow pointing at a tag that was never pushed, or one whose package
+      # this repository cannot read.
+      - name: Verify the build environment
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for tool in flutter hvigorw ohpm node gh; do
+            command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::This image is missing: ${missing[*]}. Rebuild it with ci/publish-buildenv.sh and point container.image at the new tag."
+            exit 1
+          fi
+
+          # Prints what actually ran, which is the evidence a mismatch would show
+          # up in — the image reference itself is only in the job header.
+          flutter --version
+          hvigorw --version
+          ohpm --version || true
+          node --version
+          java -version 2>&1 | head -1
+          # The image is trimmed on purpose so this job fits a hosted runner's
+          # disk — 3.68 GB to download, ~6.02 GB extracted, against ~14 GB free —
+          # and a container cannot free the runner's own disk anyway. If this
+          # ever looks tight, shrink the image (ci/Dockerfile.ohos-buildenv),
+          # don't hunt for more space here.
+          df -h /workspace | tail -1
+
+      # The mirrors (PUB_HOSTED_URL and both FLUTTER_*_STORAGE_BASE_URL) come from
+      # the image's environment, matching .envrc on the developer machine.
+      # The pub cache, defined once in .github/actions/pub-cache. Read-only here.
+      # This job runs inside the build-environment image, whose HOME is a fresh
+      # mount every run, so it used to be the one platform with no warm cache at
+      # all (136 and 164 seconds against Linux's 5). `~` resolves to that mounted
+      # home, and the path is on the runner, so the action can archive it from
+      # inside the container.
+      - uses: ./.github/actions/pub-cache
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Build unsigned hap
+        run: scripts/build-unsigned-hap.sh
+
+      - name: Build unsigned App Pack
+        # What AppGallery publishes is this — a pack holding the hap plus
+        # `pack.info` — not the hap beside it, which is for installing on a device.
+        # Judged by the artifact for the same reason as the hap: flutter exits
+        # non-zero while looking for the *signed* pack hvigor never wrote.
+        run: scripts/build-ohos-app.sh
+
+      - name: Attach the hap to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          # Only a draft is fair game: release.yml publishes the release after
+          # this job, and an asset added to a published one is an asset nobody
+          # reviewed — which immutable releases refuse outright.
+          if [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo "::error::Release $RELEASE_TAG is already published; its assets are frozen. Re-run the release pipeline for this tag instead."
+            exit 1
+          fi
+
+          scripts/attach-release-asset.sh "$RELEASE_TAG" dist/*.hap dist/*.sha256 dist/*.app.zip

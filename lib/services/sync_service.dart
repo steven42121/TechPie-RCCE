@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/ecard_sync_binding.dart';
 import '../models/third_party_account.dart';
 import 'auth_service.dart';
+import 'debug_logger.dart';
 import 'storage_service.dart';
 import 'sync_crypto.dart';
 import 'sync_envelope.dart';
@@ -76,6 +78,8 @@ class SyncService extends ChangeNotifier {
   final ThirdPartyAuthService _tpAuth;
   final StorageService _storage;
   final http.Client _client;
+  final EcardSyncStore? _ecard;
+  final DebugLogger? _logger;
   CachedSyncKey? _cachedKey;
   bool _needsRestore = false;
   DateTime? _lastSyncAt;
@@ -88,13 +92,56 @@ class SyncService extends ChangeNotifier {
   // account older than our deletion is not resurrected.
   final List<SyncTombstone> _tombstones = [];
 
-  SyncService(this._auth, this._tpAuth, this._storage, {http.Client? client})
-      : _client = client ?? http.Client();
+  SyncService(
+    this._auth,
+    this._tpAuth,
+    this._storage, {
+    http.Client? client,
+    EcardSyncStore? ecard,
+    DebugLogger? logger,
+  })  : _ecard = ecard,
+        _client = client ?? http.Client(),
+        _logger = logger;
 
   bool get enabled => _storage.syncEnabled;
   bool get hasLocalKey => _cachedKey != null;
   bool get needsRestore => _needsRestore;
   DateTime? get lastSyncAt => _lastSyncAt;
+
+  /// The most recent local mutation across all bindings (bind/rebind/renew),
+  /// for comparison against [cloudLastModified] in the sync settings UI.
+  /// Null when there are no local bindings at all.
+  DateTime? get localLastModified {
+    final accounts = _tpAuth.accounts;
+    if (accounts.isEmpty) return null;
+    return accounts.map((a) => a.updatedAt).reduce(
+          (a, b) => a.isAfter(b) ? a : b,
+        );
+  }
+
+  /// Best-effort read of the cloud blob's most recent modification time,
+  /// without merging or writing anything back — just for the "local vs
+  /// cloud version" comparison in the sync settings UI. Returns null if
+  /// there's no cloud blob, or this device has no cached key to decrypt it
+  /// (surface as "cloud version unknown" rather than attempting a merge).
+  Future<DateTime?> cloudLastModified() async {
+    if (_cachedKey == null) return null;
+    final blob = await _readBlob();
+    if (blob == null) return null;
+    final dot = blob.indexOf('.');
+    if (dot <= 0) return null;
+    final inner = blob.substring(dot + 1);
+    final plain = await SyncCrypto.decrypt(inner, _cachedKey!.key);
+    if (plain == null) return null;
+    final remote = SyncEnvelope.decode(plain);
+    if (remote == null) return null;
+    final times = [
+      ...remote.accounts.map((a) => a.updatedAt),
+      ...remote.tombstones.map((t) => t.deletedAt),
+    ];
+    if (times.isEmpty) return null;
+    return times.reduce((a, b) => a.isAfter(b) ? a : b);
+  }
   /// Human-readable text from the most recent failed Casdoor call (for the
   /// "立即备份/恢复" toasts). Null when the last call succeeded.
   String? get lastError => _lastError;
@@ -122,11 +169,18 @@ class SyncService extends ChangeNotifier {
   }
 
   void _debugLog(String s) {
-    // Visible in `flutter run` console. Sync HTTP traffic is NOT routed through
-    // LoggingHttpClient (to keep the blob / bearer out of the request log), so
-    // this is the only client-side trace of Casdoor responses. Safe to print:
-    // update-user responses are just {status,msg,data} — no secrets.
+    // Sync HTTP traffic deliberately bypasses LoggingHttpClient (the blob and
+    // the bearer stay out of the request log), so this is the only client-side
+    // trace of what Casdoor answered. It goes to the console *and* to the app's
+    // own log, so a device that cannot be attached to a terminal can still be
+    // read: settings → Developer → Debug mode → View Logs.
     if (kDebugMode) debugPrint('[sync] $s');
+    _logger?.log(
+      method: 'SYNC',
+      url: 'auth.geekpie.club',
+      tag: 'Sync',
+      responseBody: DebugLogger.redactSensitive(s),
+    );
   }
 
   // -- Casdoor HTTP -------------------------------------------------------------
@@ -199,7 +253,9 @@ class SyncService extends ChangeNotifier {
     // Casdoor returns 200 even on authz denial, but a real 401 means the token
     // is gone — try one refresh + retry before giving up.
     if (resp.statusCode == 401) {
-      if (await _auth.tryRenewSession()) {
+      // The 401 is proof the token is refused, so this renewal does not
+      // second-guess it against the stored expiry.
+      if (await _auth.tryRenewSession(force: true)) {
         final t2 = _token();
         if (t2 == null || t2.isEmpty) {
           return const SyncCasdoorResult(false, httpStatus: 401, msg: '登录已过期，请重新登录');
@@ -244,11 +300,14 @@ class SyncService extends ChangeNotifier {
   // -- Blob access --------------------------------------------------------------
 
   /// Read the encrypted blob from the user's properties, or null if absent.
-  Future<String?> _readBlob() async {
+  Future<String?> _readBlob({bool requireReadableAccount = false}) async {
     final token = await _requireToken();
     if (token == null) return null;
     final account = await _getAccount(token);
-    if (account == null) return null;
+    if (account == null) {
+      if (requireReadableAccount) throw StateError('无法读取云端同步状态');
+      return null;
+    }
     final props = account['data'] is Map
         ? (account['data'] as Map)['properties']
         : account['properties'];
@@ -382,8 +441,9 @@ class SyncService extends ChangeNotifier {
   /// envelope plaintext. Accounts are stamped with this device's id and a
   /// fresh [updatedAt] only via [touchLocal]; already-stamped accounts pass
   /// through unchanged.
-  String _serializeEnvelope() {
+  Future<String> _serializeEnvelope() async {
     final env = SyncEnvelope.fromLocal(
+      ecard: await _ecard?.readSyncBinding(),
       accounts: _tpAuth.accounts,
       tombstones: _tombstones,
     );
@@ -424,7 +484,35 @@ class SyncService extends ChangeNotifier {
     if (!enabled || _cachedKey == null) {
       return const SyncCasdoorResult(false, msg: '云同步未开启或缺少主密码');
     }
-    final payload = _serializeEnvelope();
+    var payload = await _serializeEnvelope();
+    // Read-modify-write against the copy in the cloud: this device may be behind
+    // it (a newer eCard edit or deletion, or a field a newer build wrote), and a
+    // blind push would delete what this device has never seen.
+    try {
+      final remoteBlob = await _readBlob(requireReadableAccount: true);
+      if (remoteBlob != null) {
+        final dot = remoteBlob.indexOf('.');
+        final plain = dot < 0 ? null : await SyncCrypto.decrypt(remoteBlob.substring(dot + 1), _cachedKey!.key);
+        final remote = plain == null ? null : SyncEnvelope.decode(plain);
+        if (remote == null) throw StateError('无法解密云端同步状态，请先恢复云同步');
+        final local = SyncEnvelope.decode(payload)!;
+        payload = SyncEnvelope(
+          v: local.v,
+          accounts: local.accounts,
+          tombstones: local.tombstones,
+          // Without an eCard store this build has no opinion on the binding, so
+          // the cloud's copy is the one that stands.
+          ecard: _ecard == null
+              ? remote.ecard
+              : (local.ecard?.merge(remote.ecard) ?? remote.ecard),
+          unknown: remote.unknown,
+        ).encode();
+      }
+    } catch (_) {
+      _lastError = '无法核对云端备份，请先恢复或重试云同步';
+      notifyListeners();
+      return SyncCasdoorResult(false, msg: _lastError);
+    }
     // Reuse the cached salt so other devices' cached keys keep working.
     final salted = base64.encode(_cachedKey!.salt);
     final inner = await SyncCrypto.encrypt(payload, _cachedKey!.key);
@@ -470,6 +558,7 @@ class SyncService extends ChangeNotifier {
     final remote = SyncEnvelope.decode(plain);
     if (remote == null) return;
     final local = SyncEnvelope.fromLocal(
+      ecard: await _ecard?.readSyncBinding(),
       accounts: _tpAuth.accounts,
       tombstones: _tombstones,
     );
@@ -483,6 +572,7 @@ class SyncService extends ChangeNotifier {
         )
         .toSet();
     await _tpAuth.applySyncMerge(merged.accounts, removed);
+    await _ecard?.applySyncBinding(merged.ecard);
     // Adopt the merged tombstone set so the next push propagates any remote
     // tombstones this device didn't have. Local tombstones that won are
     // already in [merged.tombstones]; ones that lost (an account won) are
@@ -495,7 +585,7 @@ class SyncService extends ChangeNotifier {
     _needsRestore = false;
     // If the merge produced a state that differs from the cloud (e.g. a local
     // account won), push the merged envelope back so other devices converge.
-    if (!_envelopeEquals(local, merged)) {
+    if (!_envelopeEquals(remote, merged)) {
       await _writeMergedEnvelope(merged);
     }
     notifyListeners();
@@ -520,6 +610,8 @@ class SyncService extends ChangeNotifier {
   /// whether a pull changed anything worth pushing back. Compares the
   /// encoded form; envelope encode is deterministic.
   bool _envelopeEquals(SyncEnvelope a, SyncEnvelope b) {
+    if (jsonEncode(a.ecard?.toJson()) != jsonEncode(b.ecard?.toJson())) return false;
+    if (jsonEncode(a.unknown) != jsonEncode(b.unknown)) return false;
     if (a.accounts.length != b.accounts.length) return false;
     if (a.tombstones.length != b.tombstones.length) return false;
     // Account order is platform-stable within an envelope.
@@ -544,20 +636,29 @@ class SyncService extends ChangeNotifier {
     return true;
   }
 
-  /// First-time setup on a device that has no cloud blob yet: derive a key
-  /// from [password] (fresh salt), cache it, and push current bindings.
-  Future<SyncOutcome> setupWithMasterPassword(String password) async {
+  /// First-time setup on a device that is not syncing yet: derive a key from
+  /// [password] (fresh salt), cache it, and push current bindings.
+  ///
+  /// When the cloud already holds a backup — typically another device's — the
+  /// caller confirms the overwrite and passes [overwriteRemote]. Without that
+  /// confirmation the call refuses, so a thin local state cannot silently
+  /// replace a good backup.
+  Future<SyncOutcome> setupWithMasterPassword(
+    String password, {
+    bool overwriteRemote = false,
+  }) async {
     if (password.isEmpty) {
       return const SyncOutcome(ok: false, message: '主密码不能为空');
     }
-    if (await cloudHasBlob()) {
+    final remoteExists = await cloudHasBlob();
+    if (remoteExists && !overwriteRemote) {
       // Cloud already has a backup — user should restore, not set up fresh.
       return const SyncOutcome(
         ok: false,
         message: '云端已存在备份，请改用「恢复」并输入主密码',
       );
     }
-    final payload = _serializeEnvelope();
+    final payload = await _serializeEnvelope();
     final blob = await SyncCrypto.encryptWithSalt(payload, password);
     final salt = SyncCrypto.extractSalt(blob)!;
     final key = await SyncCrypto.deriveKey(password, salt);
@@ -575,7 +676,10 @@ class SyncService extends ChangeNotifier {
     await _storage.setSyncLastAt(_lastSyncAt!.toIso8601String());
     _lastError = null;
     notifyListeners();
-    return const SyncOutcome(ok: true, message: '云同步已开启');
+    return SyncOutcome(
+      ok: true,
+      message: remoteExists ? '云同步已开启（已覆盖云端备份）' : '云同步已开启',
+    );
   }
 
   /// Restore on a device that has a cloud blob but no cached key: verify
@@ -600,6 +704,7 @@ class SyncService extends ChangeNotifier {
       return const SyncOutcome(ok: false, message: '云端备份格式损坏');
     }
     final local = SyncEnvelope.fromLocal(
+      ecard: await _ecard?.readSyncBinding(),
       accounts: _tpAuth.accounts,
       tombstones: _tombstones,
     );
@@ -608,6 +713,7 @@ class SyncService extends ChangeNotifier {
         .where((p) => !merged.accounts.any((a) => a.platform == p))
         .toSet();
     await _tpAuth.applySyncMerge(merged.accounts, removed);
+    await _ecard?.applySyncBinding(merged.ecard);
     _tombstones
       ..clear()
       ..addAll(merged.tombstones);
