@@ -37,8 +37,8 @@ enum AppGlassMode {
 
 /// Glass recipe for the active [AppGlassMode], attached to every [ThemeData] so
 /// chrome can read it with [GlassTheme.of]. `classic` draws opaque surfaces,
-/// `frosted` a plain blur, `liquid` the richer recipe (saturation-boosted blur,
-/// higher overlay alpha, specular sheen).
+/// `frosted` a plain blur, `liquid` a saturation-boosted blur on a lighter
+/// fill under a specular sheen and a bright bevel.
 class GlassTheme extends ThemeExtension<GlassTheme> {
   const GlassTheme(this.mode);
 
@@ -57,8 +57,10 @@ class GlassTheme extends ThemeExtension<GlassTheme> {
   bool get translucent => mode != AppGlassMode.classic;
   bool get sheen => mode == AppGlassMode.liquid;
 
-  /// Overlay alpha: liquid-glass mode uses 0.85, plain frosted mode 0.76.
-  double get overlayAlpha => mode == AppGlassMode.liquid ? 0.85 : 0.76;
+  /// Fill alpha for the inverse src-over solve. Frosted keeps the studied
+  /// 0.76; liquid glass is deliberately lighter so content shows through the
+  /// blur and the three modes never collapse into the same flat tone.
+  double get overlayAlpha => mode == AppGlassMode.liquid ? 0.52 : 0.76;
 
   @override
   GlassTheme copyWith({AppGlassMode? mode}) => GlassTheme(mode ?? this.mode);

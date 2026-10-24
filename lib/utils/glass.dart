@@ -7,7 +7,9 @@ import 'package:flutter/painting.dart';
 /// `DownscaleScrollableNoiseSuppressor` (study: ~/repos/Telegram/UI-STUDY,
 /// glass-main-tabs.md §5).
 abstract final class TgGlass {
-  /// Overlay alpha: liquid-glass mode uses 0.85, plain frosted mode 0.76.
+  /// Overlay alpha for the plain frosted recipe. Liquid glass deliberately
+  /// runs a lighter fill (see `GlassTheme.overlayAlpha`) so the blur and the
+  /// content colour read through it — its bevel and sheen carry the glass.
   static const double overlayAlpha = 0.76;
 
   /// The blurred backdrop gets its saturation tripled so content color
@@ -18,6 +20,13 @@ abstract final class TgGlass {
   /// from above" bevel). Light themes use black micro-strokes, dark themes
   /// white micro-highlights.
   static const double strokeWidth = 0.4;
+
+  /// Liquid glass rims its surfaces with a much brighter bevel, so the mode
+  /// is unmistakable at a glance instead of only over busy content.
+  static const double liquidStrokeWidth = 1.2;
+
+  static const Color _liquidStrokeLight = Color(0x8FFFFFFF); // ~0.56 white
+  static const Color _liquidStrokeDark = Color(0x59FFFFFF); // ~0.35 white
   static const double shadowBlur = 2.667;
   static const double shadowDy = 0.85;
 
@@ -27,13 +36,20 @@ abstract final class TgGlass {
   static Color strokeBottom(Brightness brightness) =>
       brightness == Brightness.light ? const Color(0x20000000) : const Color(0x11FFFFFF);
 
+  static Color liquidStrokeTop(Brightness brightness) =>
+      brightness == Brightness.light ? _liquidStrokeLight : _liquidStrokeDark;
+
+  static Color liquidStrokeBottom(Brightness brightness) =>
+      brightness == Brightness.light ? const Color(0x33FFFFFF) : const Color(0x24FFFFFF);
+
   static Color shadowColor(Brightness brightness) =>
       brightness == Brightness.light ? const Color(0x20000000) : const Color(0x04FFFFFF);
 
-  /// Liquid-glass specular sheen drawn over the surface: a soft top-left
-  /// highlight that fades out toward the bottom-right.
+  /// Liquid-glass specular sheen drawn over the surface: a strong top-left
+  /// highlight that fades out toward the bottom-right, reading as gloss on
+  /// clear glass rather than a barely-there tint.
   static Gradient sheen(Brightness brightness) {
-    final peak = brightness == Brightness.light ? 0.18 : 0.10;
+    final peak = brightness == Brightness.light ? 0.32 : 0.20;
     return LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
