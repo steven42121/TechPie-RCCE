@@ -272,6 +272,20 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
             alpha: glass.overlayAlpha,
           )
         : glassTarget;
+    // The bevel is the mode's clearest at-rest signal: a material outline on
+    // `classic`, the studied hairline on `frosted`, a bright rim on `liquid`.
+    final strokeTop = glass.sheen
+        ? TgGlass.liquidStrokeTop(brightness)
+        : glass.translucent
+            ? TgGlass.strokeTop(brightness)
+            : scheme.outlineVariant;
+    final strokeBottom = glass.sheen
+        ? TgGlass.liquidStrokeBottom(brightness)
+        : glass.translucent
+            ? TgGlass.strokeBottom(brightness)
+            : scheme.outlineVariant;
+    final strokeWidth =
+        glass.sheen ? TgGlass.liquidStrokeWidth : TgGlass.strokeWidth;
 
     final barScale = 1 + 0.019 * _barScaleT.setBool(_dragging);
 
@@ -313,9 +327,10 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
                       brightness: brightness,
                       child: CustomPaint(
                         foregroundPainter: _GlassStrokePainter(
-                          top: TgGlass.strokeTop(brightness),
-                          bottom: TgGlass.strokeBottom(brightness),
+                          top: strokeTop,
+                          bottom: strokeBottom,
                           radius: TgBottomNavBar.barHeight / 2,
+                          strokeWidth: strokeWidth,
                         ),
                         child: Container(
                           height: TgBottomNavBar.barHeight,
@@ -572,18 +587,20 @@ class _GlassStrokePainter extends CustomPainter {
     required this.top,
     required this.bottom,
     required this.radius,
+    this.strokeWidth = TgGlass.strokeWidth,
   });
 
   final Color top;
   final Color bottom;
   final double radius;
+  final double strokeWidth;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = (Offset.zero & size).deflate(TgGlass.strokeWidth / 2);
+    final rect = (Offset.zero & size).deflate(strokeWidth / 2);
     final paint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = TgGlass.strokeWidth
+      ..strokeWidth = strokeWidth
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
@@ -597,5 +614,8 @@ class _GlassStrokePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GlassStrokePainter old) =>
-      old.top != top || old.bottom != bottom || old.radius != radius;
+      old.top != top ||
+      old.bottom != bottom ||
+      old.radius != radius ||
+      old.strokeWidth != strokeWidth;
 }
