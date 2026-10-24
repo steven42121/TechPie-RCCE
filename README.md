@@ -6,13 +6,10 @@
 
 # TechPie
 
-**🥧 **TechPie** 是一个由 GeekPie 开发的 **开源、轻量、美观** 的 ShanghaiTech 第三方校园服务平台！ 🚀**
+**🥧 **TechPie** 风味版！ 🚀**
 
 </div>
 
-> [!WARNING]
->
-> 注意，由于 HarmonyOS 支持的破坏性加入，上游 Dart/flutter 版本需要回退，部分特性无法使用。相关 SDK 需要降级。
 
 ## Support Platform
 
@@ -22,6 +19,7 @@
 - [x] Windows
 - [x] MacOS
 - [x] Android
+- [x] hyperOS
 - [x] iOS
 - [x] HarmonyOS NEXT
 
