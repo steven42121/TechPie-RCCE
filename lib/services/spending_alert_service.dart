@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 import '../features/campus_card/domain/models/bill_models.dart';
 import '../features/campus_card/domain/ports/bill_ports.dart';
 import '../utils/platform.dart';
+import 'background_refresher.dart';
 import 'storage_service.dart';
 
 /// Announces card spending the app has just learned about.
@@ -29,6 +32,9 @@ final class SpendingAlertService implements SpendingAlertPort {
 
   Future<void> setEnabled(bool value) async {
     await _storage.setSpendingAlertsEnabled(value);
+    // On or off, the schedule follows: the background wake-up exists for
+    // whatever the user has asked to be told about.
+    unawaited(syncBackgroundRefresh(_storage));
     if (value && supported) {
       try {
         await _channel.invokeMethod<bool>('ensurePermission');

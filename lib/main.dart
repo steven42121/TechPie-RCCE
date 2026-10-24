@@ -8,10 +8,12 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/utils/platform.dart';
 
+import 'background_refresh.dart';
 import 'features/campus_card/app/app_providers.dart';
 import 'models/third_party_account.dart';
 import 'services/assignment_service.dart';
 import 'services/auth_service.dart';
+import 'services/background_refresher.dart';
 import 'services/campus_card_service.dart';
 import 'services/debug_logger.dart';
 import 'services/ecard_bind_service.dart';
@@ -32,6 +34,12 @@ import 'services/update_service.dart';
 import 'widgets/adaptive_feedback.dart';
 import 'widgets/app_shell/app_shell.dart';
 import 'widgets/update_dialogs.dart';
+/// The entrypoint a background engine runs: no UI, just the island and the
+/// spending alerts. It lives in this root library because the host resolves
+/// the entrypoint by name from here.
+@pragma('vm:entry-point')
+Future<void> backgroundRefresh() => runBackgroundRefresh();
+
 void main(List<String> args) async {
   // If this Flutter engine is a desktop_webview_window title bar (secondary
   // engine inside the webview popup), render the navigation controls and
@@ -206,6 +214,10 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // The island only mirrors what is already cached, so starting it on a device
   // where the user never turned it on costs nothing.
   islandService.start();
+
+  // Whatever the user has asked for keeps its own schedule: the periodic
+  // wake-up outlives this process and brings no resident service with it.
+  unawaited(syncBackgroundRefresh(storageService));
 
   // Build the campus-card runtime now that the first frame is up, so tapping the
   // pass does not pay for it. Nothing session-related happens here: a request

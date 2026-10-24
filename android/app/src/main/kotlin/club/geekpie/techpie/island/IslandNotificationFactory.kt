@@ -100,7 +100,6 @@ class IslandNotificationFactory(
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         if (backend == IslandBackend.HYPER_ISLAND) {
-            builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             runCatching { islandExtras(frame, notifyId, firstFloat) }
                 .onSuccess(builder::addExtras)
         } else {

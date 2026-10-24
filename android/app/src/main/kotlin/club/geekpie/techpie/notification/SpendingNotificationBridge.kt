@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -26,11 +27,14 @@ import io.flutter.plugin.common.MethodChannel
  * wants to hear about them at all.
  */
 class SpendingNotificationBridge(
-    private val activity: Activity,
+    context: Context,
     messenger: BinaryMessenger,
+    // Only an activity can raise the permission prompt; a background engine
+    // reports what the system already decided.
+    private val activity: Activity? = null,
 ) {
     private val channel = MethodChannel(messenger, CHANNEL)
-    private val appContext = activity.applicationContext
+    private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(NotificationManager::class.java)
 
     init {
@@ -107,12 +111,13 @@ class SpendingNotificationBridge(
     private fun requestNotificationPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         val granted = ContextCompat.checkSelfPermission(
-            activity,
+            appContext,
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) {
+        val host = activity
+        if (!granted && host != null) {
             ActivityCompat.requestPermissions(
-                activity,
+                host,
                 arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                 REQUEST_NOTIFICATION_PERMISSION,
             )

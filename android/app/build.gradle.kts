@@ -149,6 +149,8 @@ dependencies {
     // short critical text) are newer than the core version the Flutter plugins
     // resolve transitively. 1.18.0 is the newest that still builds with AGP 8.11.
     implementation("androidx.core:core:1.18.0")
+    // The scheduled background refresh: periodic work, no resident service.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 }
 
 tasks.named("preBuild") { dependsOn(prepareEcardWidgetResources) }

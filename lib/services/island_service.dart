@@ -8,6 +8,7 @@ import '../models/island_frame.dart';
 import '../utils/platform.dart';
 import '../utils/today_courses.dart';
 import 'assignment_service.dart';
+import 'background_refresher.dart';
 import 'schedule_service.dart';
 import 'storage_service.dart';
 
@@ -84,6 +85,9 @@ final class IslandService {
   /// first, since a denied permission means nothing can be shown at all.
   Future<void> setEnabled(bool value) async {
     await _storage.setIslandEnabled(value);
+    // On or off, the schedule follows: the background wake-up exists for
+    // whatever the user has asked to be told about.
+    unawaited(syncBackgroundRefresh(_storage));
     if (!value) {
       await dismiss(force: true);
       return;
