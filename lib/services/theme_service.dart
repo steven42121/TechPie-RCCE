@@ -36,9 +36,10 @@ enum AppGlassMode {
 }
 
 /// Glass recipe for the active [AppGlassMode], attached to every [ThemeData] so
-/// chrome can read it with [GlassTheme.of]. `classic` draws opaque surfaces,
-/// `frosted` a plain blur, `liquid` a saturation-boosted blur on a lighter
-/// fill under a specular sheen and a bright bevel.
+/// the bottom nav can read it with [GlassTheme.of]. `classic` draws opaque
+/// surfaces, `frosted` a plain blur, `liquid` a saturation-boosted blur on a
+/// lighter fill under a specular sheen and a bright bevel. The app bar takes
+/// no part in this — only the bottom selection bar is styled by the mode.
 class GlassTheme extends ThemeExtension<GlassTheme> {
   const GlassTheme(this.mode);
 
