@@ -25,9 +25,16 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ecardWidgets: EcardWidgetBridge? = null
     private var ecardFeedback: EcardFeedback? = null
+    private var bandBridge: BandBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (bandBridge == null) {
+            bandBridge = BandBridge(
+                applicationContext,
+                flutterEngine.dartExecutor.binaryMessenger,
+            ).also { it.start() }
+        }
         ecardWidgets = EcardWidgetBridge(this, flutterEngine.dartExecutor.binaryMessenger).also {
             it.capture(intent, notifyFlutter = false)
         }

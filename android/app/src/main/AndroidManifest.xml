@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.READ_CALENDAR"/>
     <uses-permission android:name="android.permission.WRITE_CALENDAR"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
 
     <application
         android:label="TechPie"
@@ -60,6 +61,7 @@
                 <action android:name="android.net.VpnService"/>
             </intent-filter>
         </service>
+        <receiver android:name=".BandReminderReceiver" android:exported="false"/>
         <receiver android:name=".EcardPayWidgetProvider" android:exported="false" android:label="@string/ecard_widget_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>

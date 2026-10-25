@@ -144,6 +144,19 @@ final class PaymentCodeController {
         _emitFailure(failure, latency: stopwatch.elapsed);
       }
       return false;
+    } catch (_) {
+      stopwatch.stop();
+      if (!_isCurrent(epoch)) return false;
+      _cancelTimers();
+      _emitFailure(
+        const AppFailure(
+          FailureKind.unknown,
+          '付款码生成失败，请稍后重试。',
+          code: 'PAYMENT_CODE_UNEXPECTED',
+        ),
+        latency: stopwatch.elapsed,
+      );
+      return false;
     } finally {
       if (_refreshEpochInFlight == epoch) _refreshEpochInFlight = null;
     }

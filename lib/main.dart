@@ -12,6 +12,7 @@ import 'features/campus_card/app/app_providers.dart';
 import 'models/third_party_account.dart';
 import 'services/assignment_service.dart';
 import 'services/auth_service.dart';
+import 'services/band_service.dart';
 import 'services/campus_card_service.dart';
 import 'services/debug_logger.dart';
 import 'services/ecard_bind_service.dart';
@@ -163,6 +164,14 @@ Future<void> _realMain(SharedPreferences prefs) async {
   thirdPartyAuthService.campusWebSession.attachAuth(authService);
   assignmentService.loadCached();
   await scheduleService.loadCachedData();
+
+  BandService.instance.attach(
+    scheduleService,
+    assignmentService,
+    storageService,
+    campusCardService,
+  );
+  unawaited(BandService.instance.start());
 
   runApp(
     TechPieApp(

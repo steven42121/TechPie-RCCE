@@ -143,6 +143,10 @@ android {
 
 tasks.named("preBuild") { dependsOn(prepareEcardWidgetResources) }
 
+dependencies {
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+}
+
 flutter {
     source = "../.."
 }
