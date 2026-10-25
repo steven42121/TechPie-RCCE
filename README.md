@@ -6,13 +6,10 @@
 
 # TechPie
 
-**🥧 **TechPie** 是一个由 GeekPie 开发的 **开源、轻量、美观** 的 ShanghaiTech 第三方校园服务平台！ 🚀**
+**🥧 **TechPie** 风味版！ 🚀**
 
 </div>
 
-> [!WARNING]
->
-> 注意，由于 HarmonyOS 支持的破坏性加入，上游 Dart/flutter 版本需要回退，部分特性无法使用。相关 SDK 需要降级。
 
 ## Support Platform
 
@@ -22,6 +19,7 @@
 - [x] Windows
 - [x] MacOS
 - [x] Android
+- [x] hyperOS
 - [x] iOS
 - [x] HarmonyOS NEXT
 
@@ -83,8 +81,8 @@ export HOS_SDK_HOME="$HOME/dev/command-line-tools/sdk"
 
 ### HarmonyOS
 
-- Flutter (OHOS patch) 3.27.5-ohos-1.0.5
-- [Huawei Command Tools  6.1.1 Beta1](https://developer.huawei.com/consumer/cn/download/command-line-tools-for-hmos)
+- Flutter (OHOS patch) 3.41.9+ohos-1.0.2
+- [Huawei Command Line Tools 26.0.0.851](https://developer.huawei.com/consumer/cn/download/command-line-tools-for-hmos) — HarmonyOS SDK 26.0.0 Release (API 26)
 
 ## Release & Versioning
 
