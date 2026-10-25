@@ -86,9 +86,9 @@ class BlurredAppBar extends StatelessWidget implements PreferredSizeWidget {
       leadingWidth: leadingWidth,
       toolbarHeight: adaptiveTopBarHeight(),
       backgroundColor: baseColor.withValues(
-        // Liquid glass sits denser than the frosted tint: with the sheen and
-        // the saturation-boosted blur, a 50% tint would read as noisy.
-        alpha: glass.sheen ? 0.65 : backgroundOpacity,
+        // Liquid glass runs much lighter than the frosted tint — the blur,
+        // the bright bevel and the sheen carry the look instead.
+        alpha: glass.sheen ? 0.36 : backgroundOpacity,
       ),
       foregroundColor: foregroundColor,
       surfaceTintColor: Colors.transparent,
@@ -112,6 +112,17 @@ class BlurredAppBar extends StatelessWidget implements PreferredSizeWidget {
                         decoration: BoxDecoration(
                           gradient: TgGlass.sheen(theme.brightness),
                         ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: TgGlass.liquidStrokeWidth,
+                    child: IgnorePointer(
+                      child: ColoredBox(
+                        color: TgGlass.liquidStrokeTop(theme.brightness),
                       ),
                     ),
                   ),
