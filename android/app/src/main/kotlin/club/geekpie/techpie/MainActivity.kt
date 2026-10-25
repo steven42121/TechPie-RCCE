@@ -46,7 +46,10 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         if (bandBridge == null) {
-            bandBridge = BandBridge(applicationContext).also { it.start() }
+            bandBridge = BandBridge(
+                applicationContext,
+                flutterEngine.dartExecutor.binaryMessenger,
+            ).also { it.start() }
         }
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         ecardWidgets = EcardWidgetBridge(this, messenger).also {

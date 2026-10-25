@@ -1,0 +1,38 @@
+/// 用户在「穿戴设备」页自行添加的设备条目。
+class WearableDevice {
+  const WearableDevice({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  bool get isAppleWatch => id == 'apple-watch';
+  bool get isBand => id.startsWith('band');
+
+  Map<String, Object?> toJson() => {'id': id, 'name': name};
+
+  static WearableDevice? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final id = raw['id'];
+    final name = raw['name'];
+    if (id is! String || name is! String) return null;
+    return WearableDevice(id: id, name: name);
+  }
+}
+
+const appleWatchDevice = WearableDevice(id: 'apple-watch', name: 'Apple Watch');
+
+/// 可添加的穿戴设备型号（AstroBox 可侧载的机型）；通信路径与具体型号无关。
+/// 名单经 AstroBox 管理员确认（2026-10-26）：手环8 不支持，8 Pro 可以。
+const wearableBandCatalog = <WearableDevice>[
+  WearableDevice(id: 'band8-pro', name: '小米手环8 Pro'),
+  WearableDevice(id: 'band9', name: '小米手环9'),
+  WearableDevice(id: 'band9-pro', name: '小米手环9 Pro'),
+  WearableDevice(id: 'band10', name: '小米手环10'),
+  WearableDevice(id: 'band10-pro', name: '小米手环10 Pro'),
+  WearableDevice(id: 'band11', name: '小米手环11'),
+  WearableDevice(id: 'watch-s3', name: '小米Watch S3'),
+  WearableDevice(id: 'watch-s4', name: '小米Watch S4'),
+  WearableDevice(id: 'watch-s4-41', name: '小米Watch S4 41mm'),
+  WearableDevice(id: 'watch-s5', name: '小米Watch S5'),
+  WearableDevice(id: 'watch-5', name: '小米Watch 5'),
+];
