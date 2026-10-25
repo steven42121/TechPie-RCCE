@@ -157,6 +157,16 @@ tasks.named("preBuild") { dependsOn(prepareEcardWidgetResources) }
 
 dependencies {
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+    // The plugins pin CameraX 1.3.x, whose camera-core ships
+    // libimage_processing_util_jni.so built for 4 KB pages — Android's 16 KB
+    // alignment check rejects the whole APK for that one library. The 1.4.x
+    // line rebuilt it; the constraints move the whole camera family together
+    // so core cannot float above its camera2/lifecycle siblings.
+    constraints {
+        implementation("androidx.camera:camera-core:1.4.2")
+        implementation("androidx.camera:camera-camera2:1.4.2")
+        implementation("androidx.camera:camera-lifecycle:1.4.2")
+    }
 }
 
 flutter {
