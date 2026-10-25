@@ -23,3 +23,10 @@ abstract interface class DateRangeTransactionHistoryPort {
     int pageSize = 20,
   });
 }
+
+/// Records the app has just learned about, oldest first. The implementation
+/// decides what the user is actually told — this is a signal, not a promise
+/// that a message appears.
+abstract interface class SpendingAlertPort {
+  Future<void> alertNewSpending(List<TransactionRecord> records);
+}

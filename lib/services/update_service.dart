@@ -56,16 +56,17 @@ class UpdateService {
   final http.Client _client;
   final Duration timeout;
 
-  static const repository = 'HeZeBang/TechPie-flutter';
+  /// Where updates come from: the fork that publishes the test builds.
+  static const repository = 'steven42121/TechPie-RCCE';
 
-  /// Where the update button sends the user. `releases/latest` is GitHub's own
-  /// redirect to the newest non-prerelease release, so the link stays right as
-  /// releases land — and our pipeline never marks a candidate as latest.
-  static const latestReleasePage =
-      'https://github.com/$repository/releases/latest';
+  /// Where the update button sends the user. The list page, not
+  /// `releases/latest`: GitHub's "latest" never counts prereleases, and this
+  /// fork ships its test builds as exactly those — so the redirect would miss
+  /// the newest one, or 404 while only candidates are out.
+  static const releasesPage = 'https://github.com/$repository/releases';
 
-  static Uri get _latestReleaseUri =>
-      Uri.https('api.github.com', '/repos/$repository/releases/latest');
+  static Uri get _releasesUri =>
+      Uri.https('api.github.com', '/repos/$repository/releases');
 
   /// The version this build is, for a caller that has no other reason to hold it
   /// — the silent check has none. Null when the platform cannot say or the answer
@@ -91,7 +92,7 @@ class UpdateService {
     try {
       response = await _client
           .get(
-            _latestReleaseUri,
+            _releasesUri,
             headers: {
               // Pin the API version this payload is read under, and say who is
               // asking: GitHub rejects a request with no user agent.
@@ -113,7 +114,7 @@ class UpdateService {
       case 200:
         break;
       case 404:
-        // No published release yet: nothing to update to, and nothing broken.
+        // The repository is gone or renamed: nothing to check against.
         throw UpdateCheckException('GitHub 上还没有已发布的版本。');
       case 403:
         // Unauthenticated requests are capped at 60 an hour per address.
@@ -122,23 +123,51 @@ class UpdateService {
         throw UpdateCheckException('GitHub 返回了 HTTP ${response.statusCode}。');
     }
 
-    final Map<String, dynamic> payload;
+    final List<dynamic> payload;
     try {
-      payload = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      payload = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
     } catch (_) {
       throw UpdateCheckException('GitHub 的响应无法解析。');
     }
 
-    final tag = (payload['tag_name'] as String? ?? '').trim();
-    final title = (payload['name'] as String? ?? '').trim();
-    final published =
-        ProductVersion.tryParse(tag) ?? ProductVersion.tryParse(title);
-    if (published == null) {
+    // GitHub lists releases by publication date, not version order — and
+    // unlike `releases/latest`, this view carries the candidates this fork
+    // publishes as test builds. So the offer is the highest readable version
+    // in the list, never merely the first entry; an entry without a readable
+    // version (or a draft) is stepped over rather than failing the check for
+    // every release behind it.
+    ProductVersion? newest;
+    var newestTag = '';
+    var newestTitle = '';
+    var newestBody = '';
+    var firstTag = '';
+    for (final entry in payload) {
+      if (entry is! Map<String, dynamic> || entry['draft'] == true) {
+        continue;
+      }
+      final tag = (entry['tag_name'] as String? ?? '').trim();
+      if (firstTag.isEmpty) firstTag = tag;
+      final title = (entry['name'] as String? ?? '').trim();
+      final version = ProductVersion.tryParse(tag) ?? ProductVersion.tryParse(title);
+      if (version == null) continue;
+      if (newest == null || version.compareTo(newest) > 0) {
+        newest = version;
+        newestTag = tag;
+        newestTitle = title;
+        newestBody = entry['body'] as String? ?? '';
+      }
+    }
+
+    if (payload.isEmpty) {
+      // Nothing published yet: nothing to update to, and nothing broken.
+      throw UpdateCheckException('GitHub 上还没有已发布的版本。');
+    }
+    if (newest == null) {
       // Better to say we cannot tell than to prompt for an update we do not
       // understand: a wrong prompt is worse than none.
-      throw UpdateCheckException('无法识别 GitHub 上的版本号（$tag）。');
+      throw UpdateCheckException('无法识别 GitHub 上的版本号（$firstTag）。');
     }
-    if (!published.isNewerThan(current)) {
+    if (!newest.isNewerThan(current)) {
       return null;
     }
 
@@ -146,11 +175,11 @@ class UpdateService {
     // part of the title (`v1.0.1`). Offering this update by title would read as
     // "still 1.0.1" to everyone the build is the whole difference — so the tag,
     // which carries `+B`, is what names it then.
-    final sameVersion = published.toString() == current.toString();
+    final sameVersion = newest.toString() == current.toString();
     return ReleaseInfo(
-      version: published,
-      name: title.isNotEmpty && !sameVersion ? title : tag,
-      notes: _changelog(payload['body'] as String? ?? ''),
+      version: newest,
+      name: newestTitle.isNotEmpty && !sameVersion ? newestTitle : newestTag,
+      notes: _changelog(newestBody),
     );
   }
 

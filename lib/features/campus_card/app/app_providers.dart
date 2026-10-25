@@ -38,6 +38,9 @@ final campusCardAccountProvider = Provider<VoidCallback?>((ref) => null);
 
 final homeWidgetPortProvider = Provider<HomeWidgetPort?>((ref) => null);
 
+/// Injected by the host app; nothing is announced when it is absent.
+final spendingAlertPortProvider = Provider<SpendingAlertPort?>((ref) => null);
+
 enum CampusCardEntry { paymentCode, cardManagement }
 
 final campusCardEntryProvider = Provider<CampusCardEntry>(
@@ -679,7 +682,19 @@ final accountHistoryRefreshProvider = Provider<AccountHistoryRefresh>((ref) {
     final previous = exists ? ref.read(provider).valueOrNull?.items.map((item) => item.id).toSet() : null;
     ref.invalidate(transactionFeedProvider);
     final page = await ref.read(provider.future);
-    return previous != null && page.items.any((item) => !previous.contains(item.id));
+    // An unvisited feed has no baseline: announcing every row on a first load
+    // would be a pile of receipts from the past month.
+    if (previous == null) return false;
+    final fresh = page.items
+        .where((item) => !previous.contains(item.id))
+        .toList()
+        .reversed
+        .toList();
+    if (fresh.isEmpty) return false;
+    // Oldest first, so the messages read in the order they happened. The port
+    // decides what is worth saying; the coordinator only reports that history moved.
+    unawaited(ref.read(spendingAlertPortProvider)?.alertNewSpending(fresh));
+    return true;
   },);
   ref.onDispose(coordinator.dispose);
   return coordinator;
