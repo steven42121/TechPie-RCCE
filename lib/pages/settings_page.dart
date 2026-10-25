@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/island_service.dart';
 import '../services/service_provider.dart';
 import '../services/sync_service.dart';
 import '../services/theme_service.dart';
@@ -45,6 +46,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _checkingUpdate = false;
   bool? _isPersonalInfoBlurred;
   bool _wasVisible = false;
+  IslandCapability? _islandCapability;
 
   /// The stack a settings subpage is pushed onto in a wide window. A field, not
   /// a local: a GlobalKey rebuilt every frame would drop the stack with it.
@@ -64,8 +66,38 @@ class _SettingsPageState extends State<SettingsPage> {
     if (isVisible && !_wasVisible) {
       _isPersonalInfoBlurred =
           ServiceProvider.of(context).storageService.maskPersonalInfo;
+      unawaited(_loadIslandCapability());
     }
     _wasVisible = isVisible;
+  }
+
+  /// What this device will actually show, so the tile can admit when the
+  /// "island" is really only a persistent notification.
+  Future<void> _loadIslandCapability() async {
+    final island = ServiceProvider.of(context).islandService;
+    if (island == null || !island.supported) return;
+    final capability = await island.capability();
+    if (!mounted) return;
+    setState(() => _islandCapability = capability);
+  }
+
+  Future<void> _setIslandEnabled(IslandService island, bool value) async {
+    await island.setEnabled(value);
+    await _loadIslandCapability();
+  }
+
+  String _islandSubtitle(IslandCapability? capability) {
+    if (capability == null) {
+      return 'Current class and looming deadlines in the status bar';
+    }
+    if (!capability.notificationsEnabled) {
+      return 'Allow notifications for TechPie to show it';
+    }
+    return switch (capability.backend) {
+      'hyper_island' => 'Shows as a HyperOS island',
+      'live_update' => 'Shows as an Android live-update capsule',
+      _ => 'Shows as a persistent notification',
+    };
   }
 
   void _togglePersonalInfoBlur() {
@@ -170,6 +202,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final themeService = sp.themeService;
     final tpAuth = sp.thirdPartyAuthService;
     final campusCard = sp.campusCardService;
+    final island = sp.islandService;
+    final spending = sp.spendingAlertService;
+    final keepAlive = sp.keepAliveService;
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useIosChrome || useLegacyIosChrome
@@ -433,6 +468,40 @@ class _SettingsPageState extends State<SettingsPage> {
                 });
               },
             ),
+            if (island != null && island.supported)
+              _AdaptiveSwitchTile(
+                usesIosLiquidGlass: useIosChrome,
+                secondary: const Icon(Icons.bolt_outlined),
+                title: 'Schedule island',
+                subtitle: _islandSubtitle(_islandCapability),
+                value: storage.islandEnabled,
+                onChanged: (value) =>
+                    unawaited(_setIslandEnabled(island, value)),
+              ),
+            if (keepAlive != null && keepAlive.supported)
+              _AdaptiveSwitchTile(
+                usesIosLiquidGlass: useIosChrome,
+                secondary: const Icon(Icons.power_settings_new_outlined),
+                title: '保活',
+                subtitle: '常驻后台，保持灵动岛与手环提醒在线（会显示一条常驻通知）',
+                value: keepAlive.enabled,
+                onChanged: (value) {
+                  unawaited(keepAlive.setEnabled(value));
+                  setState(() {});
+                },
+              ),
+            if (spending != null && spending.supported)
+              _AdaptiveSwitchTile(
+                usesIosLiquidGlass: useIosChrome,
+                secondary: const Icon(Icons.receipt_long_outlined),
+                title: 'Spending alerts',
+                subtitle: 'Announce a payment once the app reads it from the ledger',
+                value: storage.spendingAlertsEnabled,
+                onChanged: (value) {
+                  unawaited(spending.setEnabled(value));
+                  setState(() {});
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.info_outline),
               title: const Text('About'),

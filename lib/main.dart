@@ -8,10 +8,12 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/utils/platform.dart';
 
+import 'background_refresh.dart';
 import 'features/campus_card/app/app_providers.dart';
 import 'models/third_party_account.dart';
 import 'services/assignment_service.dart';
 import 'services/auth_service.dart';
+import 'services/background_refresher.dart';
 import 'services/band_service.dart';
 import 'services/campus_card_service.dart';
 import 'services/debug_logger.dart';
@@ -19,9 +21,12 @@ import 'services/ecard_bind_service.dart';
 import 'services/ecard_widget_service.dart';
 import 'services/egate_app_service.dart';
 import 'services/http_client.dart';
+import 'services/island_service.dart';
+import 'services/keep_alive_service.dart';
 import 'services/oa_gym_service.dart';
 import 'services/schedule_service.dart';
 import 'services/service_provider.dart';
+import 'services/spending_alert_service.dart';
 import 'services/storage_service.dart';
 import 'services/sync_service.dart';
 import 'services/theme_service.dart';
@@ -31,6 +36,12 @@ import 'services/update_service.dart';
 import 'widgets/adaptive_feedback.dart';
 import 'widgets/app_shell/app_shell.dart';
 import 'widgets/update_dialogs.dart';
+/// The entrypoint a background engine runs: no UI, just the island and the
+/// spending alerts. It lives in this root library because the host resolves
+/// the entrypoint by name from here.
+@pragma('vm:entry-point')
+Future<void> backgroundRefresh() => runBackgroundRefresh();
+
 void main(List<String> args) async {
   // If this Flutter engine is a desktop_webview_window title bar (secondary
   // engine inside the webview popup), render the navigation controls and
@@ -108,6 +119,13 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // It talks to GitHub rather than our backend, so it keeps its own client
   // instead of the logging one the API services share.
   final updateService = UpdateService();
+  final islandService = IslandService(
+    storageService,
+    scheduleService,
+    assignmentService,
+  );
+  final spendingAlertService = SpendingAlertService(storageService);
+  final keepAliveService = KeepAliveService(storageService);
 
   authService.onLogout = () async {
     // Third-party bindings persist across logouts — they will be used by the
@@ -190,6 +208,9 @@ Future<void> _realMain(SharedPreferences prefs) async {
       campusCardService: campusCardService,
       ecardBindService: ecardBindService,
       ecardWidgetService: ecardWidgetService,
+      islandService: islandService,
+      spendingAlertService: spendingAlertService,
+      keepAliveService: keepAliveService,
     ),
   );
 
@@ -201,6 +222,18 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // The home-screen widget / shortcut only needs its handler once something
   // could press it — a widget tap on iOS/Android, a long-press shortcut on OHOS.
   if (isIos() || isAndroid() || isOhos()) ecardWidgetService.initialize();
+
+  // The island only mirrors what is already cached, so starting it on a device
+  // where the user never turned it on costs nothing.
+  islandService.start();
+
+  // Whatever the user has asked for keeps its own schedule: the periodic
+  // wake-up outlives this process and brings no resident service with it.
+  unawaited(syncBackgroundRefresh(storageService));
+
+  // 保活 restores the resident process on boot if the user left it on: the
+  // island frame then doubles as the foreground notification.
+  unawaited(keepAliveService.sync());
 
   // Build the campus-card runtime now that the first frame is up, so tapping the
   // pass does not pay for it. Nothing session-related happens here: a request
@@ -318,6 +351,9 @@ class TechPieApp extends StatefulWidget {
   final CampusCardService campusCardService;
   final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
+  final IslandService? islandService;
+  final SpendingAlertService? spendingAlertService;
+  final KeepAliveService? keepAliveService;
 
   const TechPieApp({
     super.key,
@@ -336,6 +372,9 @@ class TechPieApp extends StatefulWidget {
     required this.campusCardService,
     required this.ecardBindService,
     this.ecardWidgetService,
+    this.islandService,
+    this.spendingAlertService,
+    this.keepAliveService,
   });
 
   @override
@@ -462,21 +501,47 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         campusCardService: widget.campusCardService,
         ecardBindService: widget.ecardBindService,
         ecardWidgetService: widget.ecardWidgetService,
-        child: MaterialApp(
-          navigatorKey: _navigatorKey,
-          scaffoldMessengerKey: rootMessengerKey,
-          navigatorObservers: [FeedbackRouteObserver()],
-          builder: (context, child) => AdaptiveFeedbackHost(
-            key: adaptiveFeedbackHostKey,
-            child: child ?? const SizedBox.shrink(),
+        islandService: widget.islandService,
+        spendingAlertService: widget.spendingAlertService,
+        keepAliveService: widget.keepAliveService,
+        child: _buildBanner(
+          MaterialApp(
+            navigatorKey: _navigatorKey,
+            scaffoldMessengerKey: rootMessengerKey,
+            navigatorObservers: [FeedbackRouteObserver()],
+            builder: (context, child) => AdaptiveFeedbackHost(
+              key: adaptiveFeedbackHostKey,
+              child: child ?? const SizedBox.shrink(),
+            ),
+            title: 'TechPie',
+            debugShowCheckedModeBanner: false,
+            theme: widget.themeService.lightTheme,
+            darkTheme: widget.themeService.darkTheme,
+            themeMode: widget.themeService.themeMode,
+            home: const AppShell(),
           ),
-          title: 'TechPie',
-          theme: widget.themeService.lightTheme,
-          darkTheme: widget.themeService.darkTheme,
-          themeMode: widget.themeService.themeMode,
-          home: const AppShell(),
         ),
       ),
+    );
+  }
+
+  /// Flutter's own corner ribbon is red and says DEBUG; this fork's says RCCE
+  /// and is blue, at the same corner in the same translucent style. It marks
+  /// every build of this fork, test APKs included, so a trial build is never
+  /// mistaken for a store build.
+  Widget _buildBanner(Widget app) {
+    return Banner(
+      message: 'RCCE',
+      location: BannerLocation.topEnd,
+      color: const Color(0xA00D47A1),
+      textStyle: const TextStyle(
+        fontSize: 12.0,
+        fontWeight: FontWeight.w900,
+        color: Color(0xA0FFFFFF),
+      ),
+      textDirection: TextDirection.ltr,
+      layoutDirection: TextDirection.ltr,
+      child: app,
     );
   }
 }

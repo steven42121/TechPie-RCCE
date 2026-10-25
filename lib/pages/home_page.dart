@@ -6,15 +6,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/assignment.dart';
 import '../models/course.dart';
-import '../models/course_table.dart';
-import '../models/custom_course.dart';
-import '../models/exam_course.dart';
 import '../models/feature.dart';
 import '../services/assignment_service.dart';
 import '../services/schedule_service.dart';
 import '../services/service_provider.dart';
 import '../utils/adaptive_motion.dart';
 import '../utils/platform.dart';
+import '../utils/today_courses.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_feedback.dart';
@@ -37,7 +35,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late ScheduleService _schedule;
   late AssignmentService _assignments;
   List<Course> _todayCourses = [];
-  List<Period> _periods = defaultPeriods.toList();
   bool _initialized = false;
   bool _animationsEnabled = true;
 
@@ -118,35 +115,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _doRebuild() {
-    final table = _schedule.courseTable;
-    if (table != null && table.periods.isNotEmpty) {
-      _periods = table.periods.map((p) => p.toPeriod()).toList();
-    }
-    final week = _schedule.currentWeek();
-    final today = _now.weekday;
-    final timetableCourses = table?.courses ?? const <EamsCourse>[];
-    final withCustom = withCustomCourses(
-      eamsToDisplayCourses(
-        timetableCourses,
-        week,
-        timetablePeriods: _periods,
-      ),
-      _schedule.customCourses,
-      week,
-      _schedule.termBegin,
-      periods: _periods,
-    );
-    final all = withExamCourses(
-      withCustom,
-      examsForSemester(_assignments.assignments, _schedule.selectedSemesterId),
-      week,
-      _schedule.termBegin,
-      periods: _periods,
-    );
-    final newCourses = all
-        .where((course) => course.dayOfWeek == today && course.occursOn(_now))
-        .toList()
-      ..sort((a, b) => a.gridStart.compareTo(b.gridStart));
+    final newCourses = coursesOnDay(_schedule, _assignments, _now);
 
     final previousCount = _todayCourses.length;
     setState(() {

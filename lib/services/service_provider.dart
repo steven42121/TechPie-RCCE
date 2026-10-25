@@ -7,8 +7,11 @@ import 'debug_logger.dart';
 import 'ecard_bind_service.dart';
 import 'ecard_widget_service.dart';
 import 'egate_app_service.dart';
+import 'island_service.dart';
+import 'keep_alive_service.dart';
 import 'oa_gym_service.dart';
 import 'schedule_service.dart';
+import 'spending_alert_service.dart';
 import 'storage_service.dart';
 import 'sync_service.dart';
 import 'theme_service.dart';
@@ -32,6 +35,9 @@ class ServiceProvider extends InheritedWidget {
   final CampusCardService campusCardService;
   final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
+  final IslandService? islandService;
+  final SpendingAlertService? spendingAlertService;
+  final KeepAliveService? keepAliveService;
 
   const ServiceProvider({
     super.key,
@@ -50,6 +56,9 @@ class ServiceProvider extends InheritedWidget {
     required this.campusCardService,
     required this.ecardBindService,
     this.ecardWidgetService,
+    this.islandService,
+    this.spendingAlertService,
+    this.keepAliveService,
     required super.child,
   });
 
@@ -76,5 +85,8 @@ class ServiceProvider extends InheritedWidget {
       updateService != oldWidget.updateService ||
       campusCardService != oldWidget.campusCardService ||
       ecardBindService != oldWidget.ecardBindService ||
-      ecardWidgetService != oldWidget.ecardWidgetService;
+      ecardWidgetService != oldWidget.ecardWidgetService ||
+      islandService != oldWidget.islandService ||
+      spendingAlertService != oldWidget.spendingAlertService ||
+      keepAliveService != oldWidget.keepAliveService;
 }

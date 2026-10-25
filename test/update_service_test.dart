@@ -12,17 +12,19 @@ void main() {
     final service = UpdateService(
       client: _FakeClient((request) async {
         requests.add(request);
-        return _jsonResponse({
-          'tag_name': 'v1.0.2+7',
-          'name': 'v1.0.2',
-          'body': '## 变更\n\n'
-              '- 修好了某件事\n'
-              '\n'
-              '\n## SHA-256\n\n'
-              '```text\n'
-              'abc123  TechPie-1.0.2-android-arm64v8.apk\n'
-              '```\n',
-        });
+        return _jsonResponse([
+          {
+            'tag_name': 'v1.0.2+7',
+            'name': 'v1.0.2',
+            'body': '## 变更\n\n'
+                '- 修好了某件事\n'
+                '\n'
+                '\n## SHA-256\n\n'
+                '```text\n'
+                'abc123  TechPie-1.0.2-android-arm64v8.apk\n'
+                '```\n',
+          },
+        ]);
       }),
     );
 
@@ -38,7 +40,7 @@ void main() {
     final request = requests.single;
     expect(
       request.url.toString(),
-      'https://api.github.com/repos/HeZeBang/TechPie-flutter/releases/latest',
+      'https://api.github.com/repos/steven42121/TechPie-RCCE/releases',
     );
     expect(request.headers['Accept'], contains('github+json'));
     expect(request.headers['User-Agent'], isNotEmpty);
@@ -47,7 +49,9 @@ void main() {
   test('says nothing is newer when the running build is the newest', () async {
     final service = UpdateService(
       client: _FakeClient(
-        (_) async => _jsonResponse({'tag_name': 'v1.0.1+5', 'name': 'v1.0.1', 'body': 'notes'}),
+        (_) async => _jsonResponse([
+          {'tag_name': 'v1.0.1+5', 'name': 'v1.0.1', 'body': 'notes'},
+        ]),
       ),
     );
 
@@ -62,9 +66,18 @@ void main() {
   });
 
   test('reads a legacy tag shape and a candidate', () async {
+    // The list view is what carries candidates at all — `releases/latest`
+    // never returns them, and this fork's test builds are exactly those.
     final service = UpdateService(
       client: _FakeClient(
-        (_) async => _jsonResponse({'tag_name': 'android-v1.0.2-rc.3+9', 'name': 'v1.0.2-rc.3', 'body': 'n'}),
+        (_) async => _jsonResponse([
+          {
+            'tag_name': 'android-v1.0.2-rc.3+9',
+            'name': 'v1.0.2-rc.3',
+            'body': 'n',
+            'prerelease': true,
+          },
+        ]),
       ),
     );
 
@@ -77,7 +90,9 @@ void main() {
     // only "1.0.1" and was told it was up to date.
     final service = UpdateService(
       client: _FakeClient(
-        (_) async => _jsonResponse({'tag_name': 'v1.0.1+13', 'name': 'v1.0.1', 'body': 'n'}),
+        (_) async => _jsonResponse([
+          {'tag_name': 'v1.0.1+13', 'name': 'v1.0.1', 'body': 'n'},
+        ]),
       ),
     );
 
@@ -98,13 +113,44 @@ void main() {
 
   test('refuses to prompt from a version it cannot read', () async {
     final service = UpdateService(
-      client: _FakeClient((_) async => _jsonResponse({'tag_name': 'nightly', 'name': 'nightly'})),
+      client: _FakeClient(
+        (_) async => _jsonResponse([
+          {'tag_name': 'nightly', 'name': 'nightly'},
+        ]),
+      ),
     );
 
     expect(
       () => service.checkForUpdate(const ProductVersion(1, 0, 1)),
       throwsA(isA<UpdateCheckException>()),
     );
+  });
+
+  test('offers the highest version in the list, not merely the first entry',
+      () async {
+    // GitHub lists releases by publication date, not version order: an older
+    // release can head the list, and stepping over it must not hide the newer
+    // one behind it.
+    final service = UpdateService(
+      client: _FakeClient(
+        (_) async => _jsonResponse([
+          {'tag_name': 'v1.0.2+8', 'name': 'v1.0.2', 'body': 'older'},
+          {
+            'tag_name': 'v1.0.3-rc.1+9',
+            'name': 'v1.0.3-rc.1',
+            'body': 'newer',
+            'prerelease': true,
+          },
+        ]),
+      ),
+    );
+
+    final release =
+        await service.checkForUpdate(const ProductVersion(1, 0, 2, null, 8));
+
+    expect(release!.version, const ProductVersion(1, 0, 3, 1, 9));
+    expect(release.name, 'v1.0.3-rc.1');
+    expect(release.notes, 'newer');
   });
 
   test('a request that hangs fails on a deadline instead of never', () async {
@@ -161,7 +207,7 @@ class SocketExceptionStub implements Exception {
   String toString() => 'SocketException: connection refused';
 }
 
-http.Response _jsonResponse(Map<String, dynamic> body) => http.Response(
+http.Response _jsonResponse(Object? body) => http.Response(
       jsonEncode(body),
       200,
       headers: {'content-type': 'application/json; charset=utf-8'},

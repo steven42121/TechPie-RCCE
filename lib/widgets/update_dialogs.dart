@@ -74,7 +74,7 @@ Future<void> showUpdateFailureDialog(
 Future<void> _openReleasePage() async {
   try {
     await launchUrl(
-      Uri.parse(UpdateService.latestReleasePage),
+      Uri.parse(UpdateService.releasesPage),
       mode: LaunchMode.externalApplication,
     );
   } catch (_) {

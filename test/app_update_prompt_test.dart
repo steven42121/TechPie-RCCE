@@ -67,11 +67,13 @@ void main() {
     final updates = UpdateService(
       client: MockClient(
         (_) async => http.Response(
-          jsonEncode({
-            'tag_name': 'v1.0.2+7',
-            'name': 'v1.0.2',
-            'body': '## 变更\n\n- 修好了某件事',
-          }),
+          jsonEncode([
+            {
+              'tag_name': 'v1.0.2+7',
+              'name': 'v1.0.2',
+              'body': '## 变更\n\n- 修好了某件事',
+            },
+          ]),
           200,
           headers: {'content-type': 'application/json'},
         ),
