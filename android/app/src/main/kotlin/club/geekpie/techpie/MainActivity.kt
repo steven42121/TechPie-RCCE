@@ -21,6 +21,8 @@ import club.geekpie.techpie.island.FocusSequenceStore
 import club.geekpie.techpie.island.IslandBridge
 import club.geekpie.techpie.island.IslandCapabilityProbe
 import club.geekpie.techpie.island.IslandNotificationFactory
+import club.geekpie.techpie.keepalive.KeepAlive
+import club.geekpie.techpie.keepalive.KeepAliveService
 import club.geekpie.techpie.notification.SpendingNotificationBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -87,10 +89,28 @@ class MainActivity : FlutterActivity() {
         }
 
         islandBridge = IslandBridge(
+            this,
             messenger,
             IslandCapabilityProbe(this),
             IslandNotificationFactory(this, FocusSequenceStore(this)),
         ) { requestNotificationPermission() }
+
+        MethodChannel(messenger, KeepAliveService.CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setEnabled" -> {
+                    val wanted = call.argument<Boolean>("value") == true
+                    KeepAlive.enabled = wanted
+                    if (wanted) {
+                        KeepAliveService.start(this)
+                    } else {
+                        KeepAliveService.stop(this)
+                    }
+                    result.success(true)
+                }
+                "isEnabled" -> result.success(KeepAlive.enabled)
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,

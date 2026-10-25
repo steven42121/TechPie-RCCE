@@ -204,6 +204,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final campusCard = sp.campusCardService;
     final island = sp.islandService;
     final spending = sp.spendingAlertService;
+    final keepAlive = sp.keepAliveService;
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useIosChrome || useLegacyIosChrome
@@ -474,6 +475,18 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: storage.islandEnabled,
                 onChanged: (value) =>
                     unawaited(_setIslandEnabled(island, value)),
+              ),
+            if (keepAlive != null && keepAlive.supported)
+              _AdaptiveSwitchTile(
+                usesIosLiquidGlass: useIosChrome,
+                secondary: const Icon(Icons.power_settings_new_outlined),
+                title: '保活',
+                subtitle: '常驻后台，保持灵动岛与手环提醒在线（会显示一条常驻通知）',
+                value: keepAlive.enabled,
+                onChanged: (value) {
+                  unawaited(keepAlive.setEnabled(value));
+                  setState(() {});
+                },
               ),
             if (spending != null && spending.supported)
               _AdaptiveSwitchTile(

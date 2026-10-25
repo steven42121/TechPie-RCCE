@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keepalive_channel_name">Keep alive</string>
+    <string name="keepalive_channel_desc">Holds the app open so island and band reminders stay live</string>
+    <string name="keepalive_notification_title">TechPie is running</string>
+    <string name="keepalive_notification_text">Island and band reminders stay live</string>
+</resources>

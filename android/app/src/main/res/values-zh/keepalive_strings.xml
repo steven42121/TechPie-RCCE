@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keepalive_channel_name">保活</string>
+    <string name="keepalive_channel_desc">保持应用运行，让灵动岛与手环提醒持续在线</string>
+    <string name="keepalive_notification_title">TechPie 正在运行</string>
+    <string name="keepalive_notification_text">灵动岛与手环提醒保持在线</string>
+</resources>

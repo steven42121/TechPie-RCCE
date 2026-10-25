@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Android 16 status-bar live updates (island fallback tier). -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"/>
+    <!-- 保活 (opt-in): a resident foreground service holding the island and
+         band reminders live. Nothing runs it unless the user turns it on. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
     <application
         android:label="TechPie"
@@ -67,8 +71,17 @@
         </service>
         <!--
           The schedule island is an ordinary notification, refreshed by the
-          scheduled background task; nothing keeps the process alive.
+          scheduled background task. Only the 保活 switch starts a resident
+          service, and then the island frame doubles as its notification.
         -->
+        <service
+            android:name=".keepalive.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Holds the schedule island and band reminders live while the user keeps the app resident" />
+        </service>
         <receiver android:name=".EcardPayWidgetProvider" android:exported="false" android:label="@string/ecard_widget_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
