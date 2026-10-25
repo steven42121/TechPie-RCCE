@@ -55,6 +55,9 @@ app.*.map.json
 .vscode/
 .claude/
 
+# The band-side Vela quick app, built and sideloaded on its own
+/vela_app/
+
 # Environment files
 .envrc
 # Local AGC credentials for scripts/appgallery-publish.mjs (never commit secrets)
