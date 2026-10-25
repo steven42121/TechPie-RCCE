@@ -34,6 +34,7 @@ class MainActivity : FlutterActivity() {
     private var ecardWidgets: EcardWidgetBridge? = null
     private var ecardFeedback: EcardFeedback? = null
     private var spendingAlerts: SpendingNotificationBridge? = null
+    private var bandBridge: BandBridge? = null
 
     // The probe caches the focus-permission lookup and the sequence store keeps
     // the island's monotonic update counters; the bridge owns both so a
@@ -42,6 +43,9 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (bandBridge == null) {
+            bandBridge = BandBridge(applicationContext).also { it.start() }
+        }
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         ecardWidgets = EcardWidgetBridge(this, messenger).also {
             it.capture(intent, notifyFlutter = false)
