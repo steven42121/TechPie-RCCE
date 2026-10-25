@@ -173,6 +173,9 @@ jobs:
           # "packageInfo is NULL" then blames the wrong thing. The block sits
           # under a heading the in-app dialog already strips from the changelog.
           sha="$(sha256sum "$asset" | cut -d' ' -f1)"
+          # The markdown fence below is literal text, not an unexpanded
+          # expression shellcheck can see through; the directive says so.
+          # shellcheck disable=SC2016
           notes="$(printf 'Auto-built test APK from %s (%s).\n\nSigned with the persistent test key of this fork (or its production keystore once configured); uninstall any store-signed install first.\n\n## SHA-256\n\n```text\n%s  %s\n```' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$asset")"
 
           if [[ "$MODE" == "new-release" ]]; then
