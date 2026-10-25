@@ -21,6 +21,7 @@ import 'services/ecard_widget_service.dart';
 import 'services/egate_app_service.dart';
 import 'services/http_client.dart';
 import 'services/island_service.dart';
+import 'services/keep_alive_service.dart';
 import 'services/oa_gym_service.dart';
 import 'services/schedule_service.dart';
 import 'services/service_provider.dart';
@@ -123,6 +124,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
     assignmentService,
   );
   final spendingAlertService = SpendingAlertService(storageService);
+  final keepAliveService = KeepAliveService(storageService);
 
   authService.onLogout = () async {
     // Third-party bindings persist across logouts — they will be used by the
@@ -199,6 +201,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       ecardWidgetService: ecardWidgetService,
       islandService: islandService,
       spendingAlertService: spendingAlertService,
+      keepAliveService: keepAliveService,
     ),
   );
 
@@ -218,6 +221,10 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // Whatever the user has asked for keeps its own schedule: the periodic
   // wake-up outlives this process and brings no resident service with it.
   unawaited(syncBackgroundRefresh(storageService));
+
+  // 保活 restores the resident process on boot if the user left it on: the
+  // island frame then doubles as the foreground notification.
+  unawaited(keepAliveService.sync());
 
   // Build the campus-card runtime now that the first frame is up, so tapping the
   // pass does not pay for it. Nothing session-related happens here: a request
@@ -337,6 +344,7 @@ class TechPieApp extends StatefulWidget {
   final EcardWidgetService? ecardWidgetService;
   final IslandService? islandService;
   final SpendingAlertService? spendingAlertService;
+  final KeepAliveService? keepAliveService;
 
   const TechPieApp({
     super.key,
@@ -357,6 +365,7 @@ class TechPieApp extends StatefulWidget {
     this.ecardWidgetService,
     this.islandService,
     this.spendingAlertService,
+    this.keepAliveService,
   });
 
   @override
@@ -485,6 +494,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         ecardWidgetService: widget.ecardWidgetService,
         islandService: widget.islandService,
         spendingAlertService: widget.spendingAlertService,
+        keepAliveService: widget.keepAliveService,
         child: _buildBanner(
           MaterialApp(
             navigatorKey: _navigatorKey,

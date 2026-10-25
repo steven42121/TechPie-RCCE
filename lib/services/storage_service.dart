@@ -35,6 +35,7 @@ class StorageService {
   static const _deviceIdKey = 'device_id';
   static const _maskPersonalInfoKey = 'mask_personal_info';
   static const _islandEnabledKey = 'island_enabled';
+  static const _keepAliveEnabledKey = 'keep_alive_enabled';
   static const _spendingAlertsEnabledKey = 'spending_alerts_enabled';
   static const _alertedTransactionIdsKey = 'alerted_transaction_ids';
 
@@ -216,6 +217,12 @@ class StorageService {
   bool get islandEnabled => _prefs.getBool(_islandEnabledKey) ?? false;
   Future<void> setIslandEnabled(bool value) =>
       _prefs.setBool(_islandEnabledKey, value);
+
+  /// 保活: a resident process that keeps the island and band reminders live.
+  /// Off by default — it shows a persistent notification and costs battery.
+  bool get keepAliveEnabled => _prefs.getBool(_keepAliveEnabledKey) ?? false;
+  Future<void> setKeepAliveEnabled(bool value) =>
+      _prefs.setBool(_keepAliveEnabledKey, value);
 
   /// A receipt is expected news rather than an interruption, so this is on by
   /// default and the user turns it off if they disagree.

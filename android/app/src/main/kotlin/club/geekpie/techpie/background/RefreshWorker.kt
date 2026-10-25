@@ -38,6 +38,7 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) :
         // The activity hosts these while the app is open; here the engine has
         // no activity, so the same bridges are registered against a context.
         IslandBridge(
+            applicationContext,
             messenger,
             IslandCapabilityProbe(applicationContext),
             IslandNotificationFactory(
