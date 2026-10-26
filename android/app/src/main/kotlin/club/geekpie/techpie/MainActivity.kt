@@ -24,6 +24,7 @@ import club.geekpie.techpie.island.IslandNotificationFactory
 import club.geekpie.techpie.keepalive.KeepAlive
 import club.geekpie.techpie.keepalive.KeepAliveService
 import club.geekpie.techpie.notification.SpendingNotificationBridge
+import club.geekpie.techpie.wear.WearEngineBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -43,6 +44,7 @@ class MainActivity : FlutterActivity() {
     // the island's monotonic update counters; the bridge owns both so a
     // background engine can share the same code path.
     private var islandBridge: IslandBridge? = null
+    private var wearEngine: WearEngineBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -59,6 +61,7 @@ class MainActivity : FlutterActivity() {
         ecardFeedback = EcardFeedback(this, messenger)
         screenFormFactor = ScreenFormFactorBridge(this, messenger)
         spendingAlerts = SpendingNotificationBridge(this, messenger, activity = this)
+        wearEngine = WearEngineBridge(this, messenger)
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -156,6 +159,8 @@ class MainActivity : FlutterActivity() {
         islandBridge = null
         screenFormFactor?.dispose()
         screenFormFactor = null
+        wearEngine?.dispose()
+        wearEngine = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

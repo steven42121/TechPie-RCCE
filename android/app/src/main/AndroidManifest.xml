@@ -26,6 +26,8 @@
         <!-- MIX Flip continuity: keep the activity alive across fold/unfold. -->
         <meta-data android:name="android.supports_size_changes" android:value="true"/>
         <meta-data android:name="miui.supportAppContinuity" android:value="true"/>
+        <!-- Huawei HMS App ID -->
+        <meta-data android:name="com.huawei.hms.client.appid" android:value="appid=119331345" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -106,6 +108,7 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <package android:name="com.huawei.health" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

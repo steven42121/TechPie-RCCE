@@ -122,7 +122,8 @@ android {
         applicationId = "club.geekpie.techpie"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // The HyperOS focus-notification library (island feature) requires API 27.
+        // The HyperOS focus-notification library (island feature) requires API 27;
+        // Wear Engine 5.0.3.300 floors at API 23, so the island wins.
         minSdk = maxOf(flutter.minSdkVersion, 27)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -171,4 +172,17 @@ dependencies {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Wear Engine 5.0.3.300 drives the Huawei watch companion; agconnect-core
+    // backs the HMS app id in the manifest. Work scheduling is covered by the
+    // work-runtime-ktx line above (it pulls work-runtime in).
+    implementation("com.huawei.agconnect:agconnect-core:1.5.2.300")
+    implementation("com.huawei.hms:wearengine:5.0.3.300")
+}
+
+// Local AGConnect settings contain credentials and are not checked into Git.
+if (file("agconnect-services.json").isFile) {
+    apply(plugin = "com.huawei.agconnect")
 }

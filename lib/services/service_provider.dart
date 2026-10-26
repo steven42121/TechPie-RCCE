@@ -20,6 +20,7 @@ import 'theme_service.dart';
 import 'third_party_auth_service.dart';
 import 'uni_auth_service.dart';
 import 'update_service.dart';
+import 'wear/wear_engine_service.dart';
 
 class ServiceProvider extends InheritedWidget {
   final AuthService authService;
@@ -42,6 +43,7 @@ class ServiceProvider extends InheritedWidget {
   final KeepAliveService? keepAliveService;
   final ScreenFormFactorService? screenFormFactorService;
   final GlanceSettings? glanceSettings;
+  final WearEngineService? wearEngineService;
 
   const ServiceProvider({
     super.key,
@@ -65,6 +67,7 @@ class ServiceProvider extends InheritedWidget {
     this.keepAliveService,
     this.screenFormFactorService,
     this.glanceSettings,
+    this.wearEngineService,
     required super.child,
   });
 
@@ -96,5 +99,6 @@ class ServiceProvider extends InheritedWidget {
       spendingAlertService != oldWidget.spendingAlertService ||
       keepAliveService != oldWidget.keepAliveService ||
       screenFormFactorService != oldWidget.screenFormFactorService ||
-      glanceSettings != oldWidget.glanceSettings;
+      glanceSettings != oldWidget.glanceSettings ||
+      wearEngineService != oldWidget.wearEngineService;
 }
