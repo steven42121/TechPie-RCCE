@@ -9,12 +9,14 @@ name: Auto CI (test APK)
 #   new stamp                     -> tag <stamp> and open a release for it
 #
 # The fork has no production keystore secrets, so builds are signed with the
-# disposable test key committed at ci/techpie-test-keystore.p12 (its password
-# is printed in this file; it protects nothing). Committing it is what keeps
-# the signature constant, so test APKs update over each other — install one
-# only after uninstalling the store-signed app. Adding ANDROID_KEYSTORE_BASE64
-# + ANDROID_KEYSTORE_PASSWORD + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD to
-# the fork's settings switches every build to that keystore instead.
+# committed key at ci/techpie-test-keystore.p12 — it is the Android debug key
+# the Xiaomi wearable app-link database has on file for this package
+# (SHA-1 FD:D3:9F:17:…), so the band bridge's fingerPrintVerify passes. Its
+# password is printed in this file; it protects nothing. Committing it keeps
+# the signature constant, so builds update over each other — install one only
+# after uninstalling the store-signed app. Adding ANDROID_KEYSTORE_BASE64 +
+# ANDROID_KEYSTORE_PASSWORD + ANDROID_KEY_ALIAS + ANDROID_KEY_PASSWORD to the
+# fork's settings switches every build to that keystore instead.
 
 on:
   push:

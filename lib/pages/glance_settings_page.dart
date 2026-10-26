@@ -77,34 +77,36 @@ class GlanceSettingsPage extends StatelessWidget {
                 ),
               const Divider(),
               _sectionLabel(context, '预览'),
-              ListTile(
-                leading: const Icon(Icons.stay_current_portrait),
-                title: const Text('外屏预览'),
-                subtitle: const Text('MIX Flip · 294 × 506 dp'),
+              if (info?.isFlipDevice == true)
+                ListTile(
+                  leading: const Icon(Icons.stay_current_portrait),
+                  title: const Text('外屏预览'),
+                  subtitle: const Text('MIX Flip · 1392 × 1208 px（约 506 × 439 dp）'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const GlancePreviewPage(
-                      surface: GlanceSurface.cover,
+                  onTap: () => unawaited(
+                    pushAdaptivePage<void>(
+                      context,
+                      builder: (_) => const GlancePreviewPage(
+                        surface: GlanceSurface.cover,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.stay_current_landscape),
-                title: const Text('背屏预览'),
-                subtitle: const Text('小米 17 Pro 系列 · 340 × 210 dp'),
+              if (info?.isRearDevice == true)
+                ListTile(
+                  leading: const Icon(Icons.stay_current_landscape),
+                  title: const Text('背屏预览'),
+                  subtitle: const Text('小米 17 Pro 系列 · 340 × 210 dp'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const GlancePreviewPage(
-                      surface: GlanceSurface.rear,
+                  onTap: () => unawaited(
+                    pushAdaptivePage<void>(
+                      context,
+                      builder: (_) => const GlancePreviewPage(
+                        surface: GlanceSurface.rear,
+                      ),
                     ),
                   ),
                 ),
-              ),
               const Divider(),
               _sectionLabel(context, '说明'),
               const Padding(

@@ -200,7 +200,22 @@ class ThemeService extends ChangeNotifier {
     final glass = GlassTheme(
       supportsGlassModeSelection ? _glassMode : AppGlassMode.frosted,
     );
-    return theme.copyWith(extensions: [glass]);
+    // Android's default Zoom transition scales the page down before it
+    // leaves, which reads as a stutter when backing out of a settings
+    // subpage; the Material 3 fade-forwards transition is a plain slide.
+    return theme.copyWith(
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
+      extensions: [glass],
+    );
   }
 
   ColorScheme _resolveScheme(Brightness brightness) {

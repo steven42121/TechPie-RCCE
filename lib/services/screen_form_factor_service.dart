@@ -88,10 +88,11 @@ class ScreenFormFactorService extends ChangeNotifier {
 ///
 /// - The rear screen is a secondary display (`displayId != 0`). The size
 ///   fallback covers HyperOS builds where the reflection probe is unavailable.
-/// - The MIX Flip cover screen shares display 0 with the inner screen, so the
-///   window size is the signal: the app area is ~294dp wide and taller than it
-///   is wide. The inner screen is ~445dp wide; a split-screen window on it is
-///   still excluded by the width/orientation pair unless it is extremely narrow.
+/// - The MIX Flip cover shares display 0 with the inner screen, so the window
+///   size is the signal: the 4.01" panel is 1392x1208 px, a wide near-square
+///   window of about 506x439 dp. The inner screen is about 445x1059 dp, so
+///   height separates them; a split-screen half on the inner screen is taller
+///   than it is wide and never matches the cover rule.
 GlanceSurface classifyGlanceSurface({
   required Size logicalSize,
   required ScreenFormFactorInfo? info,
@@ -105,7 +106,11 @@ GlanceSurface classifyGlanceSurface({
   final secondary = info.displayId != 0;
   if (info.isRearDevice && secondary) return GlanceSurface.rear;
   if (secondary && width > height && height <= 320) return GlanceSurface.rear;
-  if (info.isFlipDevice && width <= 380 && height > width) {
+  if (info.isFlipDevice &&
+      !secondary &&
+      width >= 400 &&
+      height <= 600 &&
+      width > height) {
     return GlanceSurface.cover;
   }
   return GlanceSurface.none;

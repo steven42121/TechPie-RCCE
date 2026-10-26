@@ -31,8 +31,8 @@ void main() {
         'isFlipDevice': true,
         'isRearDevice': false,
         'displayId': 0,
-        'windowWidthPx': 809,
-        'windowHeightPx': 1392,
+        'windowWidthPx': 1392,
+        'windowHeightPx': 1208,
         'density': 2.75,
         'densityDpi': 440,
         'isDefaultDisplay': true,
@@ -42,7 +42,7 @@ void main() {
         'sdkInt': 36,
       });
       expect(info.isFlipDevice, isTrue);
-      expect(info.windowWidthDp, closeTo(294.18, 0.01));
+      expect(info.windowWidthDp, closeTo(506.18, 0.01));
       expect(info.density, 2.75);
     });
 
@@ -87,10 +87,10 @@ void main() {
       );
     });
 
-    test('flip cover is narrow and portrait', () {
+    test('flip cover is the wide near-square 1392x1208 panel', () {
       expect(
         classifyGlanceSurface(
-          logicalSize: const Size(294, 506),
+          logicalSize: const Size(506, 439),
           info: _info(flip: true),
           enabled: true,
         ),

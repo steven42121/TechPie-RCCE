@@ -104,7 +104,7 @@ void main() {
   ) async {
     await _pumpGlance(
       tester,
-      size: const Size(294, 506),
+      size: const Size(506, 439),
       surface: GlanceSurface.cover,
       snapshot: _snapshot(),
     );
@@ -128,7 +128,7 @@ void main() {
   testWidgets('cover layout survives 1.5x text scaling', (tester) async {
     await _pumpGlance(
       tester,
-      size: const Size(294, 506),
+      size: const Size(506, 439),
       surface: GlanceSurface.cover,
       snapshot: _snapshot(),
       textScale: 1.5,
@@ -177,7 +177,7 @@ void main() {
   testWidgets('empty and logged-out states are explicit', (tester) async {
     await _pumpGlance(
       tester,
-      size: const Size(294, 506),
+      size: const Size(506, 439),
       surface: GlanceSurface.cover,
       snapshot: _snapshot(courses: const [], assignments: const []),
     );
@@ -190,7 +190,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await _pumpGlance(
       tester,
-      size: const Size(294, 506),
+      size: const Size(506, 439),
       surface: GlanceSurface.cover,
       snapshot: _snapshot(
         loggedIn: false,
@@ -211,7 +211,7 @@ void main() {
     );
     await _pumpGlance(
       tester,
-      size: const Size(294, 506),
+      size: const Size(506, 439),
       surface: GlanceSurface.cover,
       snapshot: _snapshot(courses: [past], assignments: const []),
     );

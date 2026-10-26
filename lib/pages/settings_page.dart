@@ -383,7 +383,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
               ),
-            if (isAndroid() && sp.glanceSettings != null) ...[
+            if (isAndroid() &&
+                sp.glanceSettings != null &&
+                ((sp.screenFormFactorService?.info?.isFlipDevice ?? false) ||
+                    (sp.screenFormFactorService?.info?.isRearDevice ?? false))) ...[
               ListTile(
                 leading: const Icon(Icons.screenshot_monitor_outlined),
                 title: const Text('背屏与小屏'),

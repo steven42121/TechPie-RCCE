@@ -26,8 +26,8 @@ class _GlancePreviewPageState extends State<GlancePreviewPage> {
     final services = ServiceProvider.of(context);
     final settings = services.glanceSettings;
     final cover = _surface == GlanceSurface.cover;
-    final width = cover ? 294.0 : 340.0;
-    final height = cover ? 506.0 : 210.0;
+    final width = cover ? 506.0 : 340.0;
+    final height = cover ? 439.0 : 210.0;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -69,7 +69,7 @@ class _GlancePreviewPageState extends State<GlancePreviewPage> {
                   const SizedBox(height: 10),
                   Text(
                     cover
-                        ? 'MIX Flip 外屏 · 294 × 506 dp（应用区 809 × 1392 px）'
+                        ? 'MIX Flip 外屏 · 1392 × 1208 px（约 506 × 439 dp）'
                         : '小米 17 Pro 系列背屏 · 340 × 210 dp（904 × 572 / 976 × 596 px）',
                     textAlign: TextAlign.center,
                     style: TextStyle(

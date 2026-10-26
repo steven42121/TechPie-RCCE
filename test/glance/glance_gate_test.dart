@@ -110,7 +110,7 @@ void main() {
   testWidgets('a flip cover shows the glance and hides the full app', (
     tester,
   ) async {
-    await _pumpApp(tester, size: const Size(294, 506));
+    await _pumpApp(tester, size: const Size(506, 439));
 
     expect(find.byType(GlanceShell), findsOneWidget);
     expect(find.byType(AppShell), findsNothing);
@@ -136,7 +136,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Account'), findsOneWidget);
 
-    tester.view.physicalSize = const Size(294, 506);
+    tester.view.physicalSize = const Size(506, 439);
     await tester.pumpAndSettle();
     expect(find.byType(GlanceShell), findsOneWidget);
     expect(find.text('Account'), findsNothing);
@@ -156,7 +156,7 @@ void main() {
     await runtime.auth.signIn(const DemoAuthCredential());
     await _pumpApp(
       tester,
-      size: const Size(294, 506),
+      size: const Size(506, 439),
       runtime: runtime,
     );
 
