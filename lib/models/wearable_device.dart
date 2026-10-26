@@ -21,6 +21,26 @@ class WearableDevice {
 
 const appleWatchDevice = WearableDevice(id: 'apple-watch', name: 'Apple Watch');
 
+/// 节点名（如「小米手环9 NFC版」）与目录名归一化后做包含匹配，
+/// 且只让最长命中的目录名匹配，避免一个节点被多个条目认领。
+bool matchesConnectedNode(WearableDevice device, String? nodeName) {
+  if (nodeName == null || nodeName.isEmpty) return false;
+  String norm(String s) => s
+      .toLowerCase()
+      .replaceAll('xiaomi', '小米')
+      .replaceAll(RegExp(r'\s|小米'), '');
+  final node = norm(nodeName);
+  final self = norm(device.name);
+  if (!node.contains(self)) return false;
+  for (final other in wearableBandCatalog) {
+    final otherName = norm(other.name);
+    if (otherName.length > self.length && node.contains(otherName)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// 可添加的穿戴设备型号（AstroBox 可侧载的机型）；通信路径与具体型号无关。
 /// 名单经 AstroBox 管理员确认（2026-10-26）：手环8 不支持，8 Pro 可以。
 const wearableBandCatalog = <WearableDevice>[

@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/wearable_device.dart';
 import '../services/band_service.dart';
 import '../widgets/blurred_app_bar.dart';
 
 class BandSettingsPage extends StatefulWidget {
-  const BandSettingsPage({super.key, this.title = '小米手环'});
+  const BandSettingsPage({super.key, required this.device});
 
-  final String title;
+  final WearableDevice device;
 
   @override
   State<BandSettingsPage> createState() => _BandSettingsPageState();
@@ -44,10 +45,13 @@ class _BandSettingsPageState extends State<BandSettingsPage>
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: BlurredAppBar(title: Text(widget.title)),
+      appBar: BlurredAppBar(title: Text(widget.device.name)),
       body: ListenableBuilder(
         listenable: _band,
         builder: (context, _) {
+          if (!matchesConnectedNode(widget.device, _band.nodeName)) {
+            return _buildDisconnected(_band.nodeName);
+          }
           return ListView(
             padding: const EdgeInsets.only(top: kToolbarHeight + 48),
             children: [
@@ -189,6 +193,32 @@ class _BandSettingsPageState extends State<BandSettingsPage>
           );
         },
       ),
+    );
+  }
+
+  /// 该条目不是当前连接的设备：只显示围栏说明，不暴露任何控制项。
+  Widget _buildDisconnected(String? node) {
+    return ListView(
+      padding: const EdgeInsets.only(top: kToolbarHeight + 48),
+      children: [
+        ListTile(
+          leading: const Icon(Icons.link_off),
+          title: Text('${widget.device.name} 未连接'),
+          subtitle: Text(
+            node == null || node.isEmpty
+                ? '请先在小米运动健康中连接该设备'
+                : '当前连接的是 $node；请在小米运动健康中切换到该设备后再管理',
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.refresh),
+          title: const Text('刷新状态'),
+          onTap: () async {
+            await _band.refresh();
+            if (mounted) setState(() {});
+          },
+        ),
+      ],
     );
   }
 

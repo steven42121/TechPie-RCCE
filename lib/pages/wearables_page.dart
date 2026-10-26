@@ -111,36 +111,15 @@ class _WearablesPageState extends State<WearablesPage> {
       context,
       builder: (_) => device.isAppleWatch
           ? const WatchSettingsPage()
-          : BandSettingsPage(title: device.name),
+          : BandSettingsPage(device: device),
     );
   }
 
   String _subtitle(WearableDevice device) {
     if (device.isAppleWatch) return '校园卡离线授权同步';
     final node = BandService.instance.nodeName;
-    if (node != null && node.isNotEmpty && _matchesConnectedNode(device, node)) {
-      return '已连接 · $node';
-    }
+    if (matchesConnectedNode(device, node)) return '已连接 · $node';
     return '通过小米运动健康连接';
-  }
-
-  /// 节点名（如「小米手环9 NFC版」）与目录名归一化后做包含匹配，
-  /// 且只让最长命中的目录名显示「已连接」，避免每行都挂同一个状态。
-  static bool _matchesConnectedNode(WearableDevice device, String node) {
-    String norm(String s) => s
-        .toLowerCase()
-        .replaceAll('xiaomi', '小米')
-        .replaceAll(RegExp(r'\s|小米'), '');
-    final nodeName = norm(node);
-    final deviceName = norm(device.name);
-    if (!nodeName.contains(deviceName)) return false;
-    for (final other in wearableBandCatalog) {
-      final otherName = norm(other.name);
-      if (otherName.length > deviceName.length && nodeName.contains(otherName)) {
-        return false;
-      }
-    }
-    return true;
   }
 
   @override
