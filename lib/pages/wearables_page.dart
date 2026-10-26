@@ -50,6 +50,7 @@ class _WearablesPageState extends State<WearablesPage> {
     // 允许重复添加同型号（一人多设备）。
     final options = <WearableDevice>[
       ...wearableBandCatalog,
+      if (isAndroid()) huaweiWatchDevice,
       if (isIos()) appleWatchDevice,
     ];
     final selected = await showDialog<WearableDevice>(
@@ -112,12 +113,15 @@ class _WearablesPageState extends State<WearablesPage> {
       context,
       builder: (_) => device.isAppleWatch
           ? const WatchSettingsPage()
-          : BandSettingsPage(device: device),
+          : device.isHuaweiWatch
+              ? const HuaweiWatchPage()
+              : BandSettingsPage(device: device),
     );
   }
 
   String _subtitle(WearableDevice device) {
     if (device.isAppleWatch) return '校园卡离线授权同步';
+    if (device.isHuaweiWatch) return '华为运动手表 · 校园码与截止时间';
     final node = BandService.instance.nodeName;
     if (matchesConnectedNode(device, node)) return '已连接 · $node';
     return '通过小米运动健康连接';
@@ -195,7 +199,9 @@ class _WearablesPageState extends State<WearablesPage> {
                 leading: Icon(
                   entry.value.isAppleWatch
                       ? Icons.watch_outlined
-                      : Icons.bluetooth_connected,
+                      : entry.value.isHuaweiWatch
+                          ? Icons.watch
+                          : Icons.bluetooth_connected,
                 ),
                 title: Text(entry.value.name),
                 subtitle: Text(_subtitle(entry.value)),
@@ -204,26 +210,10 @@ class _WearablesPageState extends State<WearablesPage> {
                 onLongPress: () => unawaited(_removeDevice(entry.key)),
               ),
             const Divider(),
-            // 华为手表伴生不是"添加一台设备"：WearEngine 在运动健康配对后
-            // 自行发现手表，所以这里是一个固定入口而不是目录项。
-            if (isAndroid())
-              ListTile(
-                leading: const Icon(Icons.watch),
-                title: const Text('华为手表'),
-                subtitle: const Text('华为运动手表 · 校园码与截止时间'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const HuaweiWatchPage(),
-                  ),
-                ),
-              ),
-            const Divider(),
             const ListTile(
               leading: Icon(Icons.info_outline),
               title: Text('提示'),
-              subtitle: Text('右上角 + 添加设备；长按设备可删除。手环需先在小米运动健康中完成绑定。'),
+              subtitle: Text('右上角 + 添加设备；长按设备可删除。手环需先在小米运动健康中完成绑定，华为手表需先在华为运动健康中配对。'),
             ),
           ],
         ),

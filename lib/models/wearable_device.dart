@@ -6,6 +6,7 @@ class WearableDevice {
   final String name;
 
   bool get isAppleWatch => id == 'apple-watch';
+  bool get isHuaweiWatch => id == 'huawei-watch';
   bool get isBand => id.startsWith('band');
 
   Map<String, Object?> toJson() => {'id': id, 'name': name};
@@ -20,6 +21,7 @@ class WearableDevice {
 }
 
 const appleWatchDevice = WearableDevice(id: 'apple-watch', name: 'Apple Watch');
+const huaweiWatchDevice = WearableDevice(id: 'huawei-watch', name: '华为手表');
 
 /// 节点名（如「小米手环9 NFC版」）与目录名归一化后做包含匹配，
 /// 且只让最长命中的目录名匹配，避免一个节点被多个条目认领。

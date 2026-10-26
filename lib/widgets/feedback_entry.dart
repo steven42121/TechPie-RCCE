@@ -17,7 +17,8 @@ class FeedbackEntry extends StatefulWidget {
 }
 
 class _FeedbackEntryState extends State<FeedbackEntry> {
-  static final _url = Uri.parse('https://techpie-feedback.dzhes.app');
+  static final _url =
+      Uri.parse('https://github.com/steven42121/TechPie-RCCE/issues');
   bool _opening = false;
 
   Future<void> _open() async {

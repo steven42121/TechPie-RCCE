@@ -23,7 +23,7 @@ void main() {
     );
     await tester.tap(find.text('用户反馈与工单'));
     await tester.pumpAndSettle();
-    expect(opened.toString(), 'https://techpie-feedback.dzhes.app');
+    expect(opened.toString(), 'https://github.com/steven42121/TechPie-RCCE/issues');
     expect(find.text('无法打开反馈页面'), findsNothing);
   });
 
@@ -61,7 +61,7 @@ void main() {
       expect(find.text('无法打开反馈页面'), findsOneWidget);
       await tester.tap(find.text('复制链接'));
       await tester.pumpAndSettle();
-      expect(copied, 'https://techpie-feedback.dzhes.app');
+      expect(copied, 'https://github.com/steven42121/TechPie-RCCE/issues');
     });
   }
 
