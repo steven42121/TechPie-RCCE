@@ -1,11 +1,19 @@
-name: Auto CI (APK release)
+name: Auto CI (release builds)
 
 # RCCE releases use the stamp encoded in pubspec.yaml: 26.2.102620 becomes
 # 26h2-102620. Local Android builds and CI therefore share the same identity:
 #
 #   same stamp, >100 lines added  -> rebuild, overwrite the asset in place
 #   same stamp, <=100 lines       -> skip (a no-op push is not worth an APK)
-#   new stamp                     -> tag <stamp> and open a release for it
+#   new stamp                     -> tag <stamp>, open a release for it, and
+#                                    build the Linux and Windows bundles too
+#
+# The desktop bundles follow the tag rather than the push. A bundle's name
+# carries the stamp, so a same-stamp rebuild would republish bytes under a name
+# claiming they are the release that stamp is; the phone is what a mid-stamp
+# push gets tested on, so paying a Windows runner for that churn buys nothing.
+# `desktop_builds` on a dispatch is the exception a human makes on purpose: the
+# replay path for a stamp whose bundle has to be rebuilt.
 #
 # The fork has no production keystore secrets, so builds are signed with the
 # committed key at ci/techpie-test-keystore.p12 — it is the Android debug key
@@ -20,7 +28,13 @@ name: Auto CI (APK release)
 on:
   push:
     branches: [master]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      desktop_builds:
+        description: Also rebuild the Linux and Windows bundles of the current stamp
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -30,10 +44,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-publish:
-    name: Build APK and publish to the version's release
+  # The decision is a job of its own so that every platform asks the question
+  # once. Re-deriving it per job would race: this fork's Android job is what
+  # opens the release, so a desktop job deciding afterwards would find the
+  # stamp already released and read a new release as a rebuild.
+  decide:
+    name: Decide what this push publishes
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.decide.outputs.mode }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version_code: ${{ steps.decide.outputs.version_code }}
+      added_lines: ${{ steps.decide.outputs.added_lines }}
+      desktop: ${{ steps.decide.outputs.desktop }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -46,6 +70,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BEFORE: ${{ github.event.before }}
+          # `inputs.*` is empty on a push, which is not "true".
+          DESKTOP_REQUESTED: ${{ inputs.desktop_builds }}
         run: |
           set -euo pipefail
 
@@ -84,23 +110,39 @@ jobs:
             mode=new-release
           fi
 
+          desktop=false
+          if [[ "$mode" == "new-release" || "$DESKTOP_REQUESTED" == "true" ]]; then
+            desktop=true
+          fi
+
           {
             echo "mode=$mode"
             echo "tag=$tag"
             echo "version_code=$version_code"
             echo "added_lines=$added"
+            echo "desktop=$desktop"
           } >> "$GITHUB_OUTPUT"
-          echo "mode=$mode tag=$tag version_code=$version_code added_lines=${added:-n/a}"
+          echo "mode=$mode tag=$tag version_code=$version_code added_lines=${added:-n/a} desktop=$desktop"
+
+  build-and-publish:
+    name: Build APK and publish to the version's release
+    needs: decide
+    if: needs.decide.outputs.mode != 'skip'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Java
-        if: steps.decide.outputs.mode != 'skip'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Flutter
-        if: steps.decide.outputs.mode != 'skip'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -109,20 +151,18 @@ jobs:
 
       # The committed lock resolves through the China mirror (see .envrc).
       - name: Resolve locked dependencies
-        if: steps.decide.outputs.mode != 'skip'
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
         run: flutter pub get --enforce-lockfile
 
       # Release signing. Gradle hard-fails a release build unless all four
-      # ANDROID_* values are present, so every run signs with either the
-      # fork's production keystore (when its secrets are set) or the committed
-      # test key at ci/techpie-test-keystore.p12 — a fixed key, so rebuilt
-      # APKs always update over each other. The secrets context cannot appear
-      # in step `if:` expressions, so the absence check happens inside.
+      # ANDROID_* values are present, so every run signs with either the fork's
+      # production keystore (when its secrets are set) or the committed test
+      # key at ci/techpie-test-keystore.p12 — a fixed key, so rebuilt APKs
+      # always update over each other. The secrets context cannot appear in
+      # step `if:` expressions, so the absence check happens inside.
       - name: Restore release keystore (optional)
         id: release-key
-        if: steps.decide.outputs.mode != 'skip'
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -138,7 +178,6 @@ jobs:
           echo "path=$RUNNER_TEMP/techpie-release.p12" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK
-        if: steps.decide.outputs.mode != 'skip'
         env:
           # Each value prefers the production secret and falls back to the
           # committed test key. PKCS12 keys use the store password for the key
@@ -150,8 +189,8 @@ jobs:
           # The APK's versionName is the build stamp (`26h2-102610`) and its
           # versionCode is the same clock as yyMMDDHH, so the About tile shows
           # the stamp and installs order by build time.
-          VERSION_NAME: ${{ steps.decide.outputs.tag }}
-          VERSION_CODE: ${{ steps.decide.outputs.version_code }}
+          VERSION_NAME: ${{ needs.decide.outputs.tag }}
+          VERSION_CODE: ${{ needs.decide.outputs.version_code }}
         run: |
           set -euo pipefail
           flutter build apk --release --no-pub \
@@ -159,12 +198,11 @@ jobs:
             --build-number "$VERSION_CODE"
 
       - name: Publish to the release
-        if: steps.decide.outputs.mode != 'skip'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          MODE: ${{ steps.decide.outputs.mode }}
-          TAG: ${{ steps.decide.outputs.tag }}
+          MODE: ${{ needs.decide.outputs.mode }}
+          TAG: ${{ needs.decide.outputs.tag }}
         run: |
           set -euo pipefail
 
@@ -198,3 +236,281 @@ jobs:
             gh release edit "$TAG" --notes "$notes"
             echo "Replaced the APK on release $TAG."
           fi
+
+  # Both desktop jobs wait on the APK because it is what opens the release:
+  # `gh release upload` refuses a tag with no release behind it, and nothing
+  # here creates one. They then run side by side, which is exactly what
+  # scripts/attach-release-asset.sh retries for — GitHub's upload service
+  # answers HTTP 500 when two jobs attach to one release at the same time.
+  linux:
+    name: Build and publish the Linux bundle
+    needs: [decide, build-and-publish]
+    if: needs.decide.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    # A cold Linux desktop build configures CMake, compiles every plugin, then
+    # links the runner and bundles the engine: the same order of magnitude as
+    # the Android build.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Linux desktop build dependencies
+        # What `flutter doctor` asks for on a Linux desktop target — a C++ and
+        # CMake toolchain plus GTK 3 headers — and then what this app's plugins
+        # ask for on top, which is what a release build died on before the list
+        # grew:
+        #
+        #   libwebkit2gtk-4.1-dev  the desktop WebView fork's WebKitGTK backend
+        #                          (CMake: "The following required packages were
+        #                          not found: webkit2gtk-4.1")
+        #   libsecret-1-dev        flutter_secure_storage_linux
+        #   libjsoncpp-dev         and its jsoncpp dependency
+        #
+        # liblzma-dev is there for the bundled engine's dependency on it.
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgtk-3-dev \
+            liblzma-dev \
+            libwebkit2gtk-4.1-dev \
+            libsecret-1-dev \
+            libjsoncpp-dev \
+            libjson-glib-dev \
+            qt6-base-dev \
+            qt6-declarative-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: Enable the Linux desktop target
+        # Harmless when the target is already enabled, and it makes a fresh
+        # runner behave like the machine the build was developed on.
+        run: flutter config --enable-linux-desktop
+
+      - name: Resolve locked dependencies
+        # The committed lock resolves through the China mirror (see .envrc).
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build the Linux release
+        # `--no-pub` because the lock was resolved above: the build must not
+        # resolve anything of its own. No `--build-name`: a desktop bundle's
+        # version comes from pubspec, and `BuildStamp` renders that same stamp
+        # on the About tile — no override to keep in step.
+        run: flutter build linux --release --no-pub
+
+      - name: Package the Linux bundle
+        shell: bash
+        env:
+          TAG: ${{ needs.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # TechPie-<stamp>-linux-x86-64.tar.gz: the APK's grammar, with the
+          # file left in whatever shape the build produced. The archive holds
+          # `bundle/` itself, so it extracts to one directory — the runner, its
+          # libraries and data/ next to each other.
+          cmake -S linux/widgets -B build/linux-widgets -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/linux-widgets --parallel 2
+          mkdir -p build/linux/x64/release/bundle/widgets
+          cp assets/icon/icon.png build/linux/x64/release/bundle/techpie.png
+          cp -R build/linux-widgets/kde linux/widgets/gnome linux/widgets/common \
+            build/linux/x64/release/bundle/widgets/
+          cp linux/widgets/install.py \
+            build/linux/x64/release/bundle/widgets/
+          mkdir -p dist
+          tar -czf "dist/TechPie-${TAG}-linux-x86-64.tar.gz" \
+            -C build/linux/x64/release bundle
+
+          ls -l dist
+          sha256sum dist/*.tar.gz
+
+      - name: Attach the Linux bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+          scripts/attach-release-asset.sh "$TAG" dist/*.tar.gz
+          echo "Attached the Linux bundle to release $TAG."
+
+  windows:
+    name: Build and publish the Windows bundle
+    needs: [decide, build-and-publish]
+    if: needs.decide.outputs.desktop == 'true'
+    runs-on: windows-2022
+    # Pinned, not `windows-latest`: a release should build on an image this
+    # pipeline was verified against, not on whatever `latest` becomes next. The
+    # pin dates from a real failure: on the `windows-2025-vs2026` image,
+    # `flutter_tools/lib/src/windows/visual_studio.dart` mapped an unrecognised
+    # Visual Studio major version to the 2019 generator
+    #
+    #   17 => 'Visual Studio 17 2022',
+    #   _  => 'Visual Studio 16 2019',
+    #
+    # so CMake was asked for a VS 2019 the image does not carry and answered
+    # "could not find any instance of Visual Studio" — naming the generator it
+    # was given, not the toolchain that is missing. `windows-2022` carries
+    # Visual Studio Enterprise 2022 (17.14) with the Desktop C++ workload, which
+    # is what Flutter asks for by name.
+    timeout-minutes: 60
+    # Windows runners run `run:` steps under pwsh by default. Everything below
+    # except the packaging step is POSIX shell — including the attach helper,
+    # which is a bash file in the repository — so bash is the job default and
+    # the one PowerShell step says so for itself.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.9
+          cache: true
+
+      - name: Enable the Windows desktop target
+        # Harmless when the runner image already has it on; the build refuses to
+        # start without it.
+        run: flutter config --enable-windows-desktop
+
+      - name: Verify the Windows toolchain
+        # Prints the Visual Studio flutter_tools found and the components it
+        # checks for. Without this, a toolchain mismatch surfaces only as a
+        # CMake error naming a VS generator, which does not say what the runner
+        # actually has.
+        #
+        # Not fatal: `flutter doctor` exits non-zero for things this job does
+        # not use (an unconfigured Android toolchain), and the log is the point.
+        continue-on-error: true
+        run: flutter doctor -v
+
+      - name: Allow long checkout paths
+        # Windows still refuses a path over 260 characters unless git is told
+        # otherwise, and pub checks out one of this app's git dependencies (the
+        # webview_flutter fork) into paths that long:
+        #
+        #   error: cannot stat '.../webview_flutter_android/android/src/main/
+        #   java/io/flutter/plugins/webviewflutter/
+        #   GeolocationPermissionsCallbackFlutterApiImpl.java': Filename too long
+        #
+        # That is pub's own `git checkout` inside its cache, so the setting has
+        # to be in place before `flutter pub get`, and --global is enough: the
+        # runner user owns it, and pub's git inherits it.
+        run: git config --global core.longpaths true
+
+      - name: Resolve locked dependencies
+        # The committed lock resolves through the China mirror (see .envrc).
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build the Windows release
+        run: flutter build windows --release --no-pub
+
+      - name: Package the Windows bundle
+        shell: pwsh
+        env:
+          TAG: ${{ needs.decide.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'build/windows/x64/runner/Release'
+          if (-not (Test-Path $bundle)) {
+            throw "Flutter produced no Windows bundle at $bundle"
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # Braced so the variable name cannot run into the literal that follows.
+          $archive = "dist/TechPie-${env:TAG}-windows-x86-64.zip"
+          # The archive holds the bundle's contents, so it extracts to the same
+          # layout as Release/: the executable next to its DLLs and its data
+          # directory.
+          Compress-Archive -Path "$bundle/*" -DestinationPath $archive -Force
+          # The digest is printed for the log only: the release page gets its
+          # checksums from the `checksums` job, which reads them back from
+          # whatever GitHub actually stored.
+          Get-Item $archive | Format-List Name, Length
+          Get-FileHash $archive -Algorithm SHA256 | Format-List
+
+      - name: Attach the Windows bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # Git for Windows sets `core.autocrlf=true` in the system config and
+          # neither this image nor actions/checkout overrides it, so the
+          # checkout carries CRLF and bash would fail on every line of the
+          # helper. Normalise the one file this job runs as a shell script; the
+          # workspace is throwaway and nothing here commits.
+          sed -i 's/\r$//' scripts/attach-release-asset.sh
+          scripts/attach-release-asset.sh "$TAG" dist/*.zip
+          echo "Attached the Windows bundle to release $TAG."
+
+  # One digest per asset the release actually holds, listed from GitHub's copy
+  # of the hashes rather than from what any one job built: a desktop build that
+  # died leaves no line behind for a file nobody can download, and a job that
+  # printed a digest it then failed to upload would leave the page lying.
+  checksums:
+    name: Write every asset's checksum to the release
+    needs: [decide, build-and-publish, linux, windows]
+    # Not `success()`: a Windows build that dies must not cost the release the
+    # digests of the bundles that did get through.
+    if: ${{ !cancelled() && needs.decide.outputs.mode != 'skip' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Rewrite the SHA-256 block
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          release="repos/$GH_REPO/releases/tags/$TAG"
+          body="$(gh api "$release" --jq '.body // ""')"
+
+          # Everything before this pipeline's own heading is the note the
+          # release started with; cutting the block off is what stops a re-run
+          # from stacking a second one onto the first.
+          intro="$(printf '%s\n' "$body" | awk '/^#+ *SHA-256/{exit} {print}')"
+
+          # `digest` is GitHub's own hash of the bytes it stored, so nothing is
+          # re-downloaded and an asset whose job printed no digest still counts.
+          # The field is prefixed `sha256:`; the block has always looked like
+          # `sha256sum` output, so the prefix goes. Sorted by name so a re-run
+          # of the same assets rewrites byte-identical notes.
+          {
+            printf '%s\n\n## SHA-256\n\n```text\n' "${intro%$'\n'}"
+            # The fence markers below are literal text, not an unexpanded
+            # expression shellcheck can see through; the directive says so.
+            # shellcheck disable=SC2016
+            gh api "$release" \
+              --jq '.assets[] | select(.digest != null)
+                    | "\(.digest | sub("^sha256:"; ""))  \(.name)"' \
+              | sort --key=2
+            printf '```\n'
+          } > "$RUNNER_TEMP/notes.md"
+
+          gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          echo "Release $TAG lists one checksum per asset it carries."
