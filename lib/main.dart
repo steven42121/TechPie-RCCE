@@ -16,6 +16,7 @@ import 'services/auth_service.dart';
 import 'services/background_refresher.dart';
 import 'services/band_service.dart';
 import 'services/campus_card_service.dart';
+import 'services/deadline_widget_service.dart';
 import 'services/debug_logger.dart';
 import 'services/ecard_bind_service.dart';
 import 'services/ecard_widget_service.dart';
@@ -79,11 +80,15 @@ void main(List<String> args) async {
 
 Future<void> _realMain(SharedPreferences prefs) async {
   final storageService = StorageService(prefs);
+  configureAppProxy(storageService.appProxyEnabled ? storageService.appProxyUrl : '');
   final screenFormFactorService = ScreenFormFactorService();
   final glanceSettings = GlanceSettings(storageService);
   final debugLogger = DebugLogger()..enabled = storageService.debugMode;
   final httpClient = LoggingHttpClient(debugLogger);
-  final uniAuthService = UniAuthService(logger: debugLogger);
+  final uniAuthService = UniAuthService(
+    logger: debugLogger,
+    proxyUrl: storageService.appProxyEnabled ? storageService.appProxyUrl : '',
+  );
   final authService = AuthService(
     storageService,
     httpClient,
@@ -122,7 +127,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
     thirdPartyAuthService,
     scheduleService,
   );
-  final wearEngineService = isAndroid()
+final wearEngineService = isAndroid()
       ? WearEngineService(
           transport: AndroidWearTransport(),
           metadata: PreferencesWearMetadata(prefs),
@@ -133,6 +138,9 @@ Future<void> _realMain(SharedPreferences prefs) async {
             campusCard: campusCardService,
           ),
         )
+      : null;
+  final deadlineWidgetService = !kIsWeb && defaultTargetPlatform == TargetPlatform.linux
+      ? DeadlineWidgetService(assignmentService, enabled: storageService.deadlineWidgetsEnabled)
       : null;
   final syncService = SyncService(
     authService,
@@ -240,6 +248,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       screenFormFactorService: screenFormFactorService,
       glanceSettings: glanceSettings,
       wearEngineService: wearEngineService,
+      deadlineWidgetService: deadlineWidgetService,
     ),
   );
 
@@ -248,6 +257,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
   unawaited(screenFormFactorService.initialize());
 
   bootMark('cached data ready');
+  deadlineWidgetService?.initialize();
 
   oaGymService.startProfileSync();
   unawaited(campusCardService.refreshAccount());
@@ -407,12 +417,13 @@ class TechPieApp extends StatefulWidget {
   final CampusCardService campusCardService;
   final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
-  final IslandService? islandService;
+final IslandService? islandService;
   final SpendingAlertService? spendingAlertService;
   final KeepAliveService? keepAliveService;
   final ScreenFormFactorService? screenFormFactorService;
   final GlanceSettings? glanceSettings;
   final WearEngineService? wearEngineService;
+  final DeadlineWidgetService? deadlineWidgetService;
 
   const TechPieApp({
     super.key,
@@ -431,12 +442,13 @@ class TechPieApp extends StatefulWidget {
     required this.campusCardService,
     required this.ecardBindService,
     this.ecardWidgetService,
-    this.islandService,
+this.islandService,
     this.spendingAlertService,
     this.keepAliveService,
     this.screenFormFactorService,
     this.glanceSettings,
     this.wearEngineService,
+    this.deadlineWidgetService,
   });
 
   @override
@@ -460,11 +472,16 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     unawaited(_checkForUpdatesQuietly());
     widget.ecardWidgetService?.setOpenPayHandler(_openEcardPayCode);
+    widget.deadlineWidgetService?.setOpenHandler(_openDeadlines);
   }
 
   @override
   void didUpdateWidget(covariant TechPieApp oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.deadlineWidgetService != widget.deadlineWidgetService) {
+      oldWidget.deadlineWidgetService?.clearOpenHandler();
+      widget.deadlineWidgetService?.setOpenHandler(_openDeadlines);
+    }
     if (oldWidget.ecardWidgetService == widget.ecardWidgetService) return;
     oldWidget.ecardWidgetService?.clearOpenPayHandler();
     widget.ecardWidgetService?.setOpenPayHandler(_openEcardPayCode);
@@ -474,6 +491,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.ecardWidgetService?.clearOpenPayHandler();
+    widget.deadlineWidgetService?.dispose();
     widget.campusCardService.dispose();
     widget.wearEngineService?.dispose();
     super.dispose();
@@ -487,6 +505,11 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
       unawaited(widget.authService.tryRenewSession());
       unawaited(_checkForUpdatesQuietly());
     }
+  }
+
+  Future<void> _openDeadlines() async {
+    _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    appShellPendingDeadlines.value = true;
   }
 
   /// The check nobody asked for.
@@ -514,7 +537,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     }
     if (release == null || !mounted) return;
 
-    // This State sits above the MaterialApp, so its own context has no
+// This State sits above the MaterialApp, so its own context has no
     // MaterialLocalizations and no navigator to put a dialog on; ask the app's
     // navigator instead.
     final dialogContext = _navigatorKey.currentContext;
@@ -570,6 +593,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         screenFormFactorService: widget.screenFormFactorService,
         glanceSettings: widget.glanceSettings,
         wearEngineService: widget.wearEngineService,
+        deadlineWidgetService: widget.deadlineWidgetService,
         child: _buildBanner(
           MaterialApp(
             navigatorKey: _navigatorKey,
