@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/main.dart';
 import 'package:techpie/pages/debug_log_page.dart';
+import 'package:techpie/pages/settings_page.dart';
 import 'package:techpie/services/assignment_service.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:techpie/services/campus_card_service.dart';
@@ -89,14 +90,15 @@ void main() {
     await tester.tap(find.text('Settings').first);
     await tester.pumpAndSettle();
 
-    // Settings can grow as options are added. Scroll the actual settings list
-    // until the entry can receive taps, including above the bottom navigation.
+    // Settings can grow as options are added, and the list builds lazily, so
+    // the target may not exist yet: take the settings list itself as the
+    // scrollable rather than deriving it from the target's ancestors.
     await tester.scrollUntilVisible(
       find.text('View Logs').hitTestable(),
       200,
       scrollable: find
-          .ancestor(
-            of: find.text('View Logs'),
+          .descendant(
+            of: find.byType(SettingsPage),
             matching: find.byType(Scrollable),
           )
           .first,

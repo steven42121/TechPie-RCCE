@@ -170,7 +170,9 @@ void main() {
     // Tap Deadlines
     await tester.tap(find.text('Deadlines').first);
     await tester.pumpAndSettle();
-    expect(find.text('No upcoming deadlines'), findsOneWidget);
+    // Not logged in and no course platform bound: the page asks for a source
+    // to sync from before it talks about an empty list.
+    expect(find.text('连接课程平台以获取Deadlines'), findsOneWidget);
     expect(find.byType(FloatingActionButton), findsNothing);
 
     // Tap Settings
