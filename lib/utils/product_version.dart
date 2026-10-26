@@ -20,9 +20,12 @@ class BuildStamp implements VersionId {
   final int digits;
 
   static final RegExp _shape = RegExp(r'^(\d{2})h([12])-(\d{6})$');
+  static final RegExp _packageShape =
+      RegExp(r'^(\d{2})\.([12])\.(\d{6})(?:\+[0-9]+)?$');
 
   static BuildStamp? tryParse(String raw) {
-    final match = _shape.firstMatch(raw.trim());
+    final text = raw.trim();
+    final match = _shape.firstMatch(text) ?? _packageShape.firstMatch(text);
     if (match == null) return null;
     final year = int.tryParse(match.group(1)!);
     final half = int.tryParse(match.group(2)!);

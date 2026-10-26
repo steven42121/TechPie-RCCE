@@ -15,6 +15,11 @@ val prepareEcardWidgetResources by tasks.registering(Copy::class) {
     into(ecardWidgetResources.map { it.dir("drawable-nodpi") })
 }
 
+val stampVersion = Regex("""^(\d{2})\.([12])\.(\d{6})$""").matchEntire(flutter.versionName)
+val appVersionName = stampVersion?.let {
+    "${it.groupValues[1]}h${it.groupValues[2]}-${it.groupValues[3]}"
+} ?: flutter.versionName
+
 val releaseSigningProperties = Properties()
 val releaseSigningPropertiesFile = rootProject.file("key.properties")
 
@@ -127,7 +132,7 @@ android {
         minSdk = maxOf(flutter.minSdkVersion, 27)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionName = appVersionName
     }
 
     buildTypes {

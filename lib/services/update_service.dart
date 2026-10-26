@@ -75,7 +75,8 @@ class UpdateService {
   static Future<String?> currentVersionText() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      if (BuildStamp.tryParse(info.version) != null) return info.version;
+      final stamp = BuildStamp.tryParse(info.version);
+      if (stamp != null) return stamp.text;
       final raw = info.buildNumber.isEmpty
           ? info.version
           : '${info.version}+${info.buildNumber}';

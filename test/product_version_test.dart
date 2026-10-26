@@ -2,6 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/utils/product_version.dart';
 
 void main() {
+  test('package and display versions identify the same RCCE release', () {
+    const stamp = BuildStamp(26, 2, 102620);
+    expect(BuildStamp.tryParse('26h2-102620'), stamp);
+    expect(BuildStamp.tryParse('26.2.102620'), stamp);
+    expect(BuildStamp.tryParse('26.2.102620+26102620'), stamp);
+    expect(stamp.text, '26h2-102620');
+    expect(compareVersionIds(stamp, const BuildStamp(26, 2, 102615)), greaterThan(0));
+  });
+
   group('tryParse', () {
     test('reads the shapes we publish, and nothing else', () {
       // pubspec's version line, a release name, a candidate tag, a legacy tag.

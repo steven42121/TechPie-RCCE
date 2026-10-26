@@ -128,11 +128,10 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         // A stamped build shows its stamp alone; the numeric versionCode
         // behind it is packaging detail, not something a user compares.
-        _appVersion = BuildStamp.tryParse(info.version) != null
-            ? info.version
-            : info.buildNumber.isNotEmpty
+        _appVersion = BuildStamp.tryParse(info.version)?.text ??
+            (info.buildNumber.isNotEmpty
                 ? '${info.version}+${info.buildNumber}'
-                : info.version;
+                : info.version);
       });
     } catch (error) {
       // Never let the tile's failure take the page down, but do say why.

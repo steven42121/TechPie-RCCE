@@ -1,8 +1,7 @@
-name: Auto CI (test APK)
+name: Auto CI (APK release)
 
-# Test-build pipeline for this fork only — not part of the upstream release
-# process. Builds are named by the hour they start, Beijing time —
-# `26h2-102610` is 2026 H2, October 26, 10:00 — and every hour owns a release:
+# RCCE releases use the stamp encoded in pubspec.yaml: 26.2.102620 becomes
+# 26h2-102620. Local Android builds and CI therefore share the same identity:
 #
 #   same stamp, >100 lines added  -> rebuild, overwrite the asset in place
 #   same stamp, <=100 lines       -> skip (a no-op push is not worth an APK)
@@ -20,7 +19,7 @@ name: Auto CI (test APK)
 
 on:
   push:
-    branches: [master, "bionic/**"]
+    branches: [master]
   workflow_dispatch: {}
 
 permissions:
@@ -50,13 +49,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The build id is the release identity: `26h2-MMDDHH` in Beijing time,
-          # fixed when the run starts. The numeric versionCode behind it is the
-          # same clock as `yyMMDDHH` — monotonic, and far below the int limit.
-          stamp="26h2-$(TZ=Asia/Shanghai date +%m%d%H)"
-          version_code="$(TZ=Asia/Shanghai date +%y%m%d%H)"
-          if [[ ! "$stamp" =~ ^[0-9]{2}h[12]-[0-9]{6}$ ]]; then
-            echo "::error::Unrecognized build stamp: $stamp"
+          declared="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml)"
+          if [[ ! "$declared" =~ ^([0-9]{2})\.([12])\.([0-9]{6})\+([0-9]+)$ ]]; then
+            echo "::error::Expected a stamp version such as 26.2.102620+26102620, got $declared"
+            exit 1
+          fi
+          stamp="${BASH_REMATCH[1]}h${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+          version_code="${BASH_REMATCH[4]}"
+          expected_code="${BASH_REMATCH[1]}${BASH_REMATCH[3]}"
+          if [[ "$version_code" != "$expected_code" ]]; then
+            echo "::error::versionCode must be $expected_code for $stamp"
             exit 1
           fi
           tag="$stamp"
@@ -75,7 +77,7 @@ jobs:
             if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
               added="$(git diff --numstat "$BEFORE"..HEAD | awk '{added+=$1} END {print added+0}')"
             fi
-            if [[ "$added" -ge 0 && "$added" -le 100 ]]; then
+            if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" && "$added" -ge 0 && "$added" -le 100 ]]; then
               mode=skip
             fi
           else
@@ -184,17 +186,11 @@ jobs:
           notes="$(printf 'Auto-built APK from %s (%s).\n\nSigned with the development key of this fork (or its production keystore once configured); uninstall any store-signed install first.\n\n## SHA-256\n\n```text\n%s  %s\n```' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$asset")"
 
           if [[ "$MODE" == "new-release" ]]; then
-            # gh release create resolves a missing tag against the default
-            # branch's HEAD — wrong for this fork, where the code lives on
-            # bionic/**. Point the tag at exactly what was just built.
-            if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-              git tag "$TAG"
-              git push origin "$TAG"
-            fi
             gh release create "$TAG" "$asset" \
+              --target "$GITHUB_SHA" \
               --title "TechPie $TAG" \
               --notes "$notes" \
-              --latest=false
+              --latest
             echo "Opened release $TAG with the APK."
           else
             gh release upload "$TAG" "$asset" --clobber
