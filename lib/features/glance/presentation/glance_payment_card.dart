@@ -41,10 +41,13 @@ class GlancePaymentCard extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final landscape = constraints.maxWidth > constraints.maxHeight;
+          final large = landscape &&
+              constraints.maxWidth >= 380 &&
+              constraints.maxHeight >= 300;
           if (landscape) {
             final qrSize = math
                 .min(constraints.maxWidth * 0.55, constraints.maxHeight - 10)
-                .clamp(90.0, 190.0)
+                .clamp(90.0, 280.0)
                 .toDouble();
             return Row(
               children: [
@@ -55,7 +58,7 @@ class GlancePaymentCard extends StatelessWidget {
                   onTap: onTap,
                   qrKey: qrKey,
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: large ? 18 : 10),
                 Expanded(
                   child: _PaymentDetails(
                     statusLabel: statusLabel,
@@ -63,6 +66,7 @@ class GlancePaymentCard extends StatelessWidget {
                     hint: hint,
                     countdown: countdown,
                     compact: true,
+                    large: large,
                   ),
                 ),
               ],
@@ -82,6 +86,7 @@ class GlancePaymentCard extends StatelessWidget {
                 hint: null,
                 countdown: null,
                 compact: false,
+                large: false,
               ),
               const SizedBox(height: 6),
               PaymentCodeQr(
@@ -121,6 +126,7 @@ class _PaymentDetails extends StatelessWidget {
     required this.hint,
     required this.countdown,
     required this.compact,
+    required this.large,
   });
 
   final String statusLabel;
@@ -128,6 +134,7 @@ class _PaymentDetails extends StatelessWidget {
   final String? hint;
   final Widget? countdown;
   final bool compact;
+  final bool large;
 
   @override
   Widget build(BuildContext context) {
@@ -141,19 +148,19 @@ class _PaymentDetails extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: compact ? 10 : 11,
+            fontSize: compact ? (large ? 12 : 10) : 11,
             fontWeight: FontWeight.w600,
             color: GpTokens.campusRed,
           ),
         ),
         if (balanceText != null) ...[
-          SizedBox(height: compact ? 2 : 1),
+          SizedBox(height: compact ? (large ? 4 : 2) : 1),
           Text(
             balanceText!,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: compact ? 18 : 20,
+              fontSize: compact ? (large ? 26 : 18) : 20,
               fontWeight: FontWeight.w700,
               color: GpTokens.campusRed,
               fontFeatures: const [FontFeature.tabularFigures()],
@@ -161,17 +168,17 @@ class _PaymentDetails extends StatelessWidget {
           ),
         ],
         if (countdown != null) ...[
-          const SizedBox(height: 3),
+          SizedBox(height: large ? 6 : 3),
           countdown!,
         ],
         if (hint != null) ...[
-          const SizedBox(height: 4),
+          SizedBox(height: large ? 6 : 4),
           Text(
             hint!,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 9,
+              fontSize: large ? 10 : 9,
               color: GpTokens.campusRed.withValues(alpha: 0.55),
             ),
           ),

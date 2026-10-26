@@ -176,6 +176,7 @@ class _GlanceShellState extends State<GlanceShell> {
               }
               final compact = widget.surface == GlanceSurface.rear &&
                   constraints.maxWidth > constraints.maxHeight;
+              final wide = widget.surface == GlanceSurface.cover;
               final selectedIndex = _index.clamp(0, sections.length - 1);
               final section = sections[selectedIndex];
               return Column(
@@ -186,6 +187,7 @@ class _GlanceShellState extends State<GlanceShell> {
                     inTerm: widget.snapshot.inTerm,
                     sectionLabel: _sectionLabel(section),
                     compact: compact,
+                    wide: wide,
                     onRefresh: widget.onRefresh,
                   ),
                   Expanded(
@@ -226,6 +228,7 @@ class _GlanceHeader extends StatelessWidget {
     required this.inTerm,
     required this.sectionLabel,
     required this.compact,
+    required this.wide,
     this.onRefresh,
   });
 
@@ -234,6 +237,7 @@ class _GlanceHeader extends StatelessWidget {
   final bool inTerm;
   final String sectionLabel;
   final bool compact;
+  final bool wide;
   final VoidCallback? onRefresh;
 
   @override
@@ -281,6 +285,48 @@ class _GlanceHeader extends StatelessWidget {
         ),
       );
     }
+    if (wide) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 2),
+        child: Row(
+          children: [
+            Text(
+              formatGlanceClock(now),
+              style: TextStyle(
+                fontSize: 24,
+                height: 1,
+                fontWeight: FontWeight.w700,
+                color: colors.onSurface,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                date,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              sectionLabel,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: colors.onSurface,
+              ),
+            ),
+            if (onRefresh != null)
+              _GlanceRefreshButton(onRefresh: onRefresh!),
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 8, 3),
       child: Row(
@@ -321,21 +367,32 @@ class _GlanceHeader extends StatelessWidget {
             ),
           ),
           if (onRefresh != null)
-            Semantics(
-              label: '刷新',
-              button: true,
-              child: IconButton(
-                onPressed: onRefresh,
-                icon: const Icon(Icons.refresh, size: 18),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 32,
-                  height: 32,
-                ),
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
+            _GlanceRefreshButton(onRefresh: onRefresh!),
         ],
+      ),
+    );
+  }
+}
+
+class _GlanceRefreshButton extends StatelessWidget {
+  const _GlanceRefreshButton({required this.onRefresh});
+
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '刷新',
+      button: true,
+      child: IconButton(
+        onPressed: onRefresh,
+        icon: const Icon(Icons.refresh, size: 18),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(
+          width: 32,
+          height: 32,
+        ),
+        visualDensity: VisualDensity.compact,
       ),
     );
   }
