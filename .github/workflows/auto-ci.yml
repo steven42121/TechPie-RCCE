@@ -179,7 +179,7 @@ jobs:
           # The markdown fence below is literal text, not an unexpanded
           # expression shellcheck can see through; the directive says so.
           # shellcheck disable=SC2016
-          notes="$(printf 'Auto-built test APK from %s (%s).\n\nSigned with the persistent test key of this fork (or its production keystore once configured); uninstall any store-signed install first.\n\n## SHA-256\n\n```text\n%s  %s\n```' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$asset")"
+          notes="$(printf 'Auto-built APK from %s (%s).\n\nSigned with this fork's development key (or its production keystore once configured); uninstall any store-signed install first.\n\n## SHA-256\n\n```text\n%s  %s\n```' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$asset")"
 
           if [[ "$MODE" == "new-release" ]]; then
             # gh release create resolves a missing tag against the default
@@ -190,7 +190,7 @@ jobs:
               git push origin "$TAG"
             fi
             gh release create "$TAG" "$asset" \
-              --title "Test build $TAG" \
+              --title "TechPie $TAG" \
               --notes "$notes" \
               --latest=false
             echo "Opened release $TAG with the APK."
