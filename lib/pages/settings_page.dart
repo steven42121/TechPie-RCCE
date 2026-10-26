@@ -29,6 +29,7 @@ import '../widgets/update_dialogs.dart';
 import 'debug_log_page.dart';
 import 'debug_webview_page.dart';
 import 'developer_lab_page.dart';
+import 'glance_settings_page.dart';
 import 'login_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
@@ -382,6 +383,21 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
               ),
+            if (isAndroid() && sp.glanceSettings != null) ...[
+              ListTile(
+                leading: const Icon(Icons.screenshot_monitor_outlined),
+                title: const Text('背屏与小屏'),
+                subtitle: const Text('在小米背屏 / MIX Flip 外屏显示课程、作业和消费码'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const GlanceSettingsPage(),
+                  ),
+                ),
+              ),
+              const Divider(),
+            ],
 
             // Appearance section
             _sectionHeader(theme, 'Appearance'),

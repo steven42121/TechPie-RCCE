@@ -21,7 +21,11 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:resizeableActivity="true"
         android:usesCleartextTraffic="false">
+        <!-- MIX Flip continuity: keep the activity alive across fold/unfold. -->
+        <meta-data android:name="android.supports_size_changes" android:value="true"/>
+        <meta-data android:name="miui.supportAppContinuity" android:value="true"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

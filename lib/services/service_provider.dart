@@ -7,10 +7,12 @@ import 'debug_logger.dart';
 import 'ecard_bind_service.dart';
 import 'ecard_widget_service.dart';
 import 'egate_app_service.dart';
+import 'glance_settings_service.dart';
 import 'island_service.dart';
 import 'keep_alive_service.dart';
 import 'oa_gym_service.dart';
 import 'schedule_service.dart';
+import 'screen_form_factor_service.dart';
 import 'spending_alert_service.dart';
 import 'storage_service.dart';
 import 'sync_service.dart';
@@ -38,6 +40,8 @@ class ServiceProvider extends InheritedWidget {
   final IslandService? islandService;
   final SpendingAlertService? spendingAlertService;
   final KeepAliveService? keepAliveService;
+  final ScreenFormFactorService? screenFormFactorService;
+  final GlanceSettings? glanceSettings;
 
   const ServiceProvider({
     super.key,
@@ -59,6 +63,8 @@ class ServiceProvider extends InheritedWidget {
     this.islandService,
     this.spendingAlertService,
     this.keepAliveService,
+    this.screenFormFactorService,
+    this.glanceSettings,
     required super.child,
   });
 
@@ -88,5 +94,7 @@ class ServiceProvider extends InheritedWidget {
       ecardWidgetService != oldWidget.ecardWidgetService ||
       islandService != oldWidget.islandService ||
       spendingAlertService != oldWidget.spendingAlertService ||
-      keepAliveService != oldWidget.keepAliveService;
+      keepAliveService != oldWidget.keepAliveService ||
+      screenFormFactorService != oldWidget.screenFormFactorService ||
+      glanceSettings != oldWidget.glanceSettings;
 }

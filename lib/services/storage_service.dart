@@ -281,6 +281,26 @@ class StorageService {
   Future<void> setBandOfflineCredEnabled(bool value) =>
       _prefs.setBool('band_offline_cred_enabled', value);
 
+  // 背屏 / 折叠外屏的精简界面设置。
+  bool get glanceEnabled => _prefs.getBool('glance_enabled') ?? true;
+  Future<void> setGlanceEnabled(bool value) =>
+      _prefs.setBool('glance_enabled', value);
+
+  bool get glanceShowCourses =>
+      _prefs.getBool('glance_show_courses') ?? true;
+  Future<void> setGlanceShowCourses(bool value) =>
+      _prefs.setBool('glance_show_courses', value);
+
+  bool get glanceShowAssignments =>
+      _prefs.getBool('glance_show_assignments') ?? true;
+  Future<void> setGlanceShowAssignments(bool value) =>
+      _prefs.setBool('glance_show_assignments', value);
+
+  bool get glanceShowPayment =>
+      _prefs.getBool('glance_show_payment') ?? true;
+  Future<void> setGlanceShowPayment(bool value) =>
+      _prefs.setBool('glance_show_payment', value);
+
   // 用户添加的穿戴设备列表；null 表示从未设置（由页面给默认值）。
   List<WearableDevice>? get storedWearableDevices {
     final raw = _prefs.getString('wearable_devices');

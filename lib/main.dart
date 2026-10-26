@@ -20,11 +20,13 @@ import 'services/debug_logger.dart';
 import 'services/ecard_bind_service.dart';
 import 'services/ecard_widget_service.dart';
 import 'services/egate_app_service.dart';
+import 'services/glance_settings_service.dart';
 import 'services/http_client.dart';
 import 'services/island_service.dart';
 import 'services/keep_alive_service.dart';
 import 'services/oa_gym_service.dart';
 import 'services/schedule_service.dart';
+import 'services/screen_form_factor_service.dart';
 import 'services/service_provider.dart';
 import 'services/spending_alert_service.dart';
 import 'services/storage_service.dart';
@@ -35,6 +37,7 @@ import 'services/uni_auth_service.dart';
 import 'services/update_service.dart';
 import 'widgets/adaptive_feedback.dart';
 import 'widgets/app_shell/app_shell.dart';
+import 'widgets/glance/glance_gate.dart';
 import 'widgets/update_dialogs.dart';
 /// The entrypoint a background engine runs: no UI, just the island and the
 /// spending alerts. It lives in this root library because the host resolves
@@ -72,6 +75,8 @@ void main(List<String> args) async {
 
 Future<void> _realMain(SharedPreferences prefs) async {
   final storageService = StorageService(prefs);
+  final screenFormFactorService = ScreenFormFactorService();
+  final glanceSettings = GlanceSettings(storageService);
   final debugLogger = DebugLogger()..enabled = storageService.debugMode;
   final httpClient = LoggingHttpClient(debugLogger);
   final uniAuthService = UniAuthService(logger: debugLogger);
@@ -211,8 +216,14 @@ Future<void> _realMain(SharedPreferences prefs) async {
       islandService: islandService,
       spendingAlertService: spendingAlertService,
       keepAliveService: keepAliveService,
+      screenFormFactorService: screenFormFactorService,
+      glanceSettings: glanceSettings,
     ),
   );
+
+  // The gate starts on the full app until the native screen probe answers;
+  // deliberately not awaited so it cannot delay the first frame.
+  unawaited(screenFormFactorService.initialize());
 
   bootMark('cached data ready');
 
@@ -354,6 +365,8 @@ class TechPieApp extends StatefulWidget {
   final IslandService? islandService;
   final SpendingAlertService? spendingAlertService;
   final KeepAliveService? keepAliveService;
+  final ScreenFormFactorService? screenFormFactorService;
+  final GlanceSettings? glanceSettings;
 
   const TechPieApp({
     super.key,
@@ -375,6 +388,8 @@ class TechPieApp extends StatefulWidget {
     this.islandService,
     this.spendingAlertService,
     this.keepAliveService,
+    this.screenFormFactorService,
+    this.glanceSettings,
   });
 
   @override
@@ -504,14 +519,18 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         islandService: widget.islandService,
         spendingAlertService: widget.spendingAlertService,
         keepAliveService: widget.keepAliveService,
+        screenFormFactorService: widget.screenFormFactorService,
+        glanceSettings: widget.glanceSettings,
         child: _buildBanner(
           MaterialApp(
             navigatorKey: _navigatorKey,
             scaffoldMessengerKey: rootMessengerKey,
             navigatorObservers: [FeedbackRouteObserver()],
-            builder: (context, child) => AdaptiveFeedbackHost(
-              key: adaptiveFeedbackHostKey,
-              child: child ?? const SizedBox.shrink(),
+            builder: (context, child) => GlanceGate(
+              child: AdaptiveFeedbackHost(
+                key: adaptiveFeedbackHostKey,
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
             title: 'TechPie',
             debugShowCheckedModeBanner: false,

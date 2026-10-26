@@ -1,12 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/app_providers.dart';
 import '../../application/confirmed_disconnect_feedback.dart';
@@ -27,6 +24,7 @@ import '../theme/colors.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
+import '../widgets/payment_code_qr.dart';
 import 'bill_transaction_screen.dart';
 import 'card_manage_screen.dart';
 import 'offline_screen.dart';
@@ -1226,7 +1224,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                                           'payment-code-pending-spinner',
                                                         ),
                                                       )
-                                                    : _QrCode(
+                                                    : PaymentCodeQr(
                                                         key: ValueKey(
                                                           offline
                                                               ? payload
@@ -1284,7 +1282,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                         ),
                                       )
                                     else
-                                      _CodeCountdown(
+                                      PaymentCodeCountdown(
                                         generation: payment.generation,
                                         active: active,
                                         style: TextStyle(
@@ -1385,161 +1383,8 @@ final class _ExpandedPaymentPass extends StatelessWidget {
   }
 }
 
-final class _CodeCountdown extends StatefulWidget {
-  const _CodeCountdown({
-    required this.generation,
-    required this.active,
-    required this.style,
-  });
-  final int generation;
-  final bool active;
-  final TextStyle style;
-
-  @override
-  State<_CodeCountdown> createState() => _CodeCountdownState();
-}
-
-class _CodeCountdownState extends State<_CodeCountdown> {
-  Timer? _timer;
-  int _remaining = 30;
-
-  @override
-  void initState() {
-    super.initState();
-    _startTimer();
-  }
-
-  @override
-  void didUpdateWidget(_CodeCountdown oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.generation != widget.generation) {
-      _remaining = 30;
-      _startTimer();
-    } else if (oldWidget.active != widget.active) {
-      _startTimer();
-    }
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-    if (!widget.active || _remaining <= 1) return;
-    final initial = _remaining;
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      final next = (initial - timer.tick).clamp(1, 30);
-      setState(() => _remaining = next);
-      if (_remaining == 1) timer.cancel();
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        width: double.infinity,
-        child: RepaintBoundary(
-          child: Text(
-            '$_remaining秒后刷新',
-            textAlign: TextAlign.center,
-            style: widget.style,
-          ),
-        ),
-      );
-}
-
 double _scaled(double width, double ratio, double minimum, double maximum) =>
     (width * ratio).clamp(minimum, maximum).toDouble();
-
-final class _QrCode extends StatefulWidget {
-  const _QrCode({
-    super.key,
-    required this.payload,
-    required this.binaryPayload,
-    required this.size,
-    required this.onTap,
-  });
-
-  final String payload;
-  final bool binaryPayload;
-  final double size;
-  final VoidCallback onTap;
-
-  @override
-  State<_QrCode> createState() => _QrCodeState();
-}
-
-class _QrCodeState extends State<_QrCode> {
-  late Widget _image;
-
-  @override
-  void initState() {
-    super.initState();
-    _image = _createImage();
-  }
-
-  @override
-  void didUpdateWidget(_QrCode oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.payload != widget.payload ||
-        oldWidget.binaryPayload != widget.binaryPayload) {
-      _image = _createImage();
-    }
-  }
-
-  Widget _createImage() => widget.binaryPayload
-      ? QrImageView.withQr(
-          qr: QrCode.fromUint8List(
-            data: Uint8List.fromList(latin1.encode(widget.payload)),
-            errorCorrectLevel: QrErrorCorrectLevel.L,
-          ),
-          padding: EdgeInsets.zero,
-          eyeStyle: const QrEyeStyle(
-            eyeShape: QrEyeShape.square,
-            color: GpTokens.campusRed,
-          ),
-          dataModuleStyle: const QrDataModuleStyle(
-            dataModuleShape: QrDataModuleShape.square,
-            color: GpTokens.campusRed,
-          ),
-          backgroundColor: GpTokens.cardCanvas,
-        )
-      : QrImageView(
-          data: widget.payload,
-          version: QrVersions.auto,
-          padding: EdgeInsets.zero,
-          eyeStyle: const QrEyeStyle(
-            eyeShape: QrEyeShape.square,
-            color: GpTokens.campusRed,
-          ),
-          dataModuleStyle: const QrDataModuleStyle(
-            dataModuleShape: QrDataModuleShape.square,
-            color: GpTokens.campusRed,
-          ),
-          backgroundColor: GpTokens.cardCanvas,
-        );
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: '轻触二维码刷新',
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          key: const Key('payment-code-qr'),
-          width: widget.size,
-          height: widget.size,
-          color: GpTokens.cardCanvas,
-          padding: EdgeInsets.all(widget.size * 0.035),
-          child: _image,
-        ),
-      ),
-    );
-  }
-}
 
 final class _PaymentSuccess extends ConsumerWidget {
   const _PaymentSuccess({

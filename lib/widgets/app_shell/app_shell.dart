@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 
-import '../../features/campus_card/app/app_providers.dart';
 import '../../pages/assignments_page.dart';
 import '../../pages/campus_card_page.dart';
 import '../../pages/home_page.dart';
@@ -12,18 +11,13 @@ import '../../pages/settings_page.dart';
 import '../../utils/adaptive_layout.dart';
 import '../../utils/platform.dart';
 import '../../widgets/adaptive_page_navigation.dart';
+import '../glance/glance_active_scope.dart';
 import 'app_destination.dart';
+import 'app_entry_notifier.dart';
 import 'desktop/desktop_shell.dart';
 import 'mobile_shell.dart';
 
-/// A campus-card entry the host asked for — a home-screen widget tap, a
-/// shortcut, a `techpie://ecard/pay` link — that has not been shown yet.
-///
-/// The shell owns the push because the shell is what knows where the page
-/// belongs: inside the selected destination's stack on a wide window, on the
-/// root navigator on a phone. A value set before the shell mounts waits for it,
-/// which is what a cold start needs.
-final appShellPendingEcardEntry = ValueNotifier<CampusCardEntry?>(null);
+export 'app_entry_notifier.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -105,6 +99,9 @@ class _AppShellState extends State<AppShell> {
   void _showPendingEcardEntry() {
     final entry = appShellPendingEcardEntry.value;
     if (entry == null || !mounted) return;
+    // The glance surface owns the entry while it is on screen; consuming it
+    // here would push a page nobody can see.
+    if (GlanceActiveScope.isActive(context)) return;
     appShellPendingEcardEntry.value = null;
     // Inside the selected destination's stack on a wide window (the sidebar
     // stays), on the root navigator on a phone — the same place any other page

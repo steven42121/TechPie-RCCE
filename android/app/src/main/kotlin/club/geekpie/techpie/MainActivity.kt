@@ -37,6 +37,7 @@ class MainActivity : FlutterActivity() {
     private var ecardFeedback: EcardFeedback? = null
     private var spendingAlerts: SpendingNotificationBridge? = null
     private var bandBridge: BandBridge? = null
+    private var screenFormFactor: ScreenFormFactorBridge? = null
 
     // The probe caches the focus-permission lookup and the sequence store keeps
     // the island's monotonic update counters; the bridge owns both so a
@@ -56,6 +57,7 @@ class MainActivity : FlutterActivity() {
             it.capture(intent, notifyFlutter = false)
         }
         ecardFeedback = EcardFeedback(this, messenger)
+        screenFormFactor = ScreenFormFactorBridge(this, messenger)
         spendingAlerts = SpendingNotificationBridge(this, messenger, activity = this)
 
         MethodChannel(
@@ -152,6 +154,8 @@ class MainActivity : FlutterActivity() {
         spendingAlerts = null
         islandBridge?.dispose()
         islandBridge = null
+        screenFormFactor?.dispose()
+        screenFormFactor = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
