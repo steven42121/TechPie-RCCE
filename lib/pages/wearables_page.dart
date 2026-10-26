@@ -10,6 +10,7 @@ import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
 import 'band_settings_page.dart';
+import 'huawei_watch_page.dart';
 import 'watch_settings_page.dart';
 
 /// 穿戴设备列表：右上角添加，长按删除。
@@ -201,6 +202,22 @@ class _WearablesPageState extends State<WearablesPage> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => unawaited(_openDevice(entry.value)),
                 onLongPress: () => unawaited(_removeDevice(entry.key)),
+              ),
+            const Divider(),
+            // 华为手表伴生不是"添加一台设备"：WearEngine 在运动健康配对后
+            // 自行发现手表，所以这里是一个固定入口而不是目录项。
+            if (isAndroid())
+              ListTile(
+                leading: const Icon(Icons.watch),
+                title: const Text('华为手表'),
+                subtitle: const Text('华为运动手表 · 校园码与截止时间'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const HuaweiWatchPage(),
+                  ),
+                ),
               ),
             const Divider(),
             const ListTile(
