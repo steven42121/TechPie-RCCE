@@ -440,7 +440,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     // than not mentioning the update at all.
     if (_promptedThisLaunch) return;
 
-    final current = await UpdateService.currentProductVersion();
+    final current = await UpdateService.currentVersionText();
     if (current == null || !mounted) return;
 
     final ReleaseInfo? release;

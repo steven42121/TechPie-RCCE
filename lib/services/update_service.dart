@@ -26,7 +26,7 @@ class ReleaseInfo {
   });
 
   /// The version the release carries, comparable with the running one.
-  final ProductVersion version;
+  final VersionId version;
 
   /// What the release calls itself — `v1.0.1`, `v1.0.1-rc.2`.
   final String name;
@@ -68,26 +68,35 @@ class UpdateService {
   static Uri get _releasesUri =>
       Uri.https('api.github.com', '/repos/$repository/releases');
 
-  /// The version this build is, for a caller that has no other reason to hold it
-  /// — the silent check has none. Null when the platform cannot say or the answer
-  /// is not a version: a check against an unknown version would answer about
-  /// nothing.
-  static Future<ProductVersion?> currentProductVersion() async {
+  /// The version this build is, as text a caller hands straight back to
+  /// [checkForUpdate]. A stamped build returns its stamp alone — the numeric
+  /// versionCode rides along as `buildNumber` but is not part of the identity.
+  /// Null when the platform cannot say or the answer is not a version.
+  static Future<String?> currentVersionText() async {
     try {
       final info = await PackageInfo.fromPlatform();
+      if (BuildStamp.tryParse(info.version) != null) return info.version;
       final raw = info.buildNumber.isEmpty
           ? info.version
           : '${info.version}+${info.buildNumber}';
-      return ProductVersion.tryParse(raw);
+      return ProductVersion.tryParse(raw) == null ? null : raw;
     } catch (_) {
       return null;
     }
   }
 
-  /// The newest published release when it is newer than [current], or null when
-  /// the running build is already the newest — which is not a failure, and must
-  /// not read like one.
-  Future<ReleaseInfo?> checkForUpdate(ProductVersion current) async {
+  static VersionId? _versionId(String raw) =>
+      BuildStamp.tryParse(raw) ?? ProductVersion.tryParse(raw);
+
+  /// The newest published release when it is newer than [currentRaw], or null
+  /// when the running build is already the newest — which is not a failure, and
+  /// must not read like one. [currentRaw] is a version or build stamp; an
+  /// unreadable one is an exception, never a silent "up to date".
+  Future<ReleaseInfo?> checkForUpdate(String currentRaw) async {
+    final current = _versionId(currentRaw);
+    if (current == null) {
+      throw UpdateCheckException('无法识别当前的版本号（$currentRaw）。');
+    }
     final http.Response response;
     try {
       response = await _client
@@ -131,12 +140,11 @@ class UpdateService {
     }
 
     // GitHub lists releases by publication date, not version order — and
-    // unlike `releases/latest`, this view carries the candidates this fork
-    // publishes as test builds. So the offer is the highest readable version
-    // in the list, never merely the first entry; an entry without a readable
-    // version (or a draft) is stepped over rather than failing the check for
-    // every release behind it.
-    ProductVersion? newest;
+    // unlike `releases/latest`, this view carries every build this fork
+    // publishes. So the offer is the highest readable id in the list, never
+    // merely the first entry; an entry without a readable id (or a draft) is
+    // stepped over rather than failing the check for every release behind it.
+    VersionId? newest;
     var newestTag = '';
     var newestTitle = '';
     var newestBody = '';
@@ -148,9 +156,9 @@ class UpdateService {
       final tag = (entry['tag_name'] as String? ?? '').trim();
       if (firstTag.isEmpty) firstTag = tag;
       final title = (entry['name'] as String? ?? '').trim();
-      final version = ProductVersion.tryParse(tag) ?? ProductVersion.tryParse(title);
+      final version = _versionId(tag) ?? _versionId(title);
       if (version == null) continue;
-      if (newest == null || version.compareTo(newest) > 0) {
+      if (newest == null || compareVersionIds(version, newest) > 0) {
         newest = version;
         newestTag = tag;
         newestTitle = title;
@@ -167,15 +175,19 @@ class UpdateService {
       // understand: a wrong prompt is worse than none.
       throw UpdateCheckException('无法识别 GitHub 上的版本号（$firstTag）。');
     }
-    if (!newest.isNewerThan(current)) {
+    if (compareVersionIds(newest, current) <= 0) {
       return null;
     }
 
-    // Two builds of one version differ only by `+B`, and the build number is not
-    // part of the title (`v1.0.1`). Offering this update by title would read as
-    // "still 1.0.1" to everyone the build is the whole difference — so the tag,
-    // which carries `+B`, is what names it then.
-    final sameVersion = newest.toString() == current.toString();
+    // Two semver builds of one version differ only by `+B`, and the build
+    // number is not part of the title (`v1.0.1`). Offering this update by title
+    // would read as "still 1.0.1" to everyone the build is the whole
+    // difference — so the tag, which carries `+B`, is what names it then.
+    // Stamps are already unique per build, so their title (when present) is
+    // descriptive and never ambiguous.
+    final sameVersion = newest is ProductVersion &&
+        current is ProductVersion &&
+        newest.toString() == current.toString();
     return ReleaseInfo(
       version: newest,
       name: newestTitle.isNotEmpty && !sameVersion ? newestTitle : newestTag,

@@ -1,12 +1,12 @@
 name: Auto CI (test APK)
 
 # Test-build pipeline for this fork only — not part of the upstream release
-# process. Every push to a tracked branch either replaces the APK on the
-# current version's release or opens a new one when pubspec.yaml moved:
+# process. Builds are named by the hour they start, Beijing time —
+# `26h2-102610` is 2026 H2, October 26, 10:00 — and every hour owns a release:
 #
-#   same version, >100 lines added  -> rebuild, overwrite the asset in place
-#   same version, <=100 lines       -> skip (a no-op push is not worth an APK)
-#   new version                     -> tag v<version> and open a release for it
+#   same stamp, >100 lines added  -> rebuild, overwrite the asset in place
+#   same stamp, <=100 lines       -> skip (a no-op push is not worth an APK)
+#   new stamp                     -> tag <stamp> and open a release for it
 #
 # The fork has no production keystore secrets, so builds are signed with the
 # disposable test key committed at ci/techpie-test-keystore.p12 (its password
@@ -48,19 +48,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9]+)?$ ]]; then
-            echo "::error::Unrecognized pubspec version: $version"
+          # The build id is the release identity: `26h2-MMDDHH` in Beijing time,
+          # fixed when the run starts. The numeric versionCode behind it is the
+          # same clock as `yyMMDDHH` — monotonic, and far below the int limit.
+          stamp="26h2-$(TZ=Asia/Shanghai date +%m%d%H)"
+          version_code="$(TZ=Asia/Shanghai date +%y%m%d%H)"
+          if [[ ! "$stamp" =~ ^[0-9]{2}h[12]-[0-9]{6}$ ]]; then
+            echo "::error::Unrecognized build stamp: $stamp"
             exit 1
           fi
-          tag="v$version"
+          tag="$stamp"
 
           # -1 means "rebuild": it is the default until a measured line count
           # says otherwise, and it covers every path that never measures —
           # force-pushes, first runs, and new releases alike.
           added=-1
 
-          # A new release is opened when this exact tag has no release yet.
+          # A new release is opened when this exact stamp has no release yet.
           if gh release view "$tag" >/dev/null 2>&1; then
             mode=replace
             # Count the lines added since the push's base commit. After a
@@ -76,17 +80,13 @@ jobs:
             mode=new-release
           fi
 
-          prerelease=false
-          [[ "${version%%+*}" == *-* ]] && prerelease=true
-
           {
             echo "mode=$mode"
             echo "tag=$tag"
-            echo "version=$version"
-            echo "prerelease=$prerelease"
+            echo "version_code=$version_code"
             echo "added_lines=$added"
           } >> "$GITHUB_OUTPUT"
-          echo "mode=$mode tag=$tag added_lines=${added:-n/a}"
+          echo "mode=$mode tag=$tag version_code=$version_code added_lines=${added:-n/a}"
 
       - name: Set up Java
         if: steps.decide.outputs.mode != 'skip'
@@ -143,12 +143,16 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'techpie-ci-store' }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'techpie-test' }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'techpie-ci-store' }}
-          VERSION: ${{ steps.decide.outputs.version }}
+          # The APK's versionName is the build stamp (`26h2-102610`) and its
+          # versionCode is the same clock as yyMMDDHH, so the About tile shows
+          # the stamp and installs order by build time.
+          VERSION_NAME: ${{ steps.decide.outputs.tag }}
+          VERSION_CODE: ${{ steps.decide.outputs.version_code }}
         run: |
           set -euo pipefail
           flutter build apk --release --no-pub \
-            --build-name "${VERSION%%+*}" \
-            --build-number "${VERSION##*+}"
+            --build-name "$VERSION_NAME" \
+            --build-number "$VERSION_CODE"
 
       - name: Publish to the release
         if: steps.decide.outputs.mode != 'skip'
@@ -157,15 +161,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MODE: ${{ steps.decide.outputs.mode }}
           TAG: ${{ steps.decide.outputs.tag }}
-          PRERELEASE: ${{ steps.decide.outputs.prerelease }}
         run: |
           set -euo pipefail
 
           apk=build/app/outputs/flutter-apk/app-release.apk
           test -f "$apk"
-          # One fixed asset name per version, so a rebuild overwrites the same
+          # One fixed asset name per stamp, so a rebuild overwrites the same
           # file instead of stacking dated copies on the release page.
-          asset="TechPie-${TAG#v}-android.apk"
+          asset="TechPie-$TAG-android.apk"
           cp "$apk" "$asset"
 
           # The checksum is what separates a mangled download from a good one:
@@ -187,9 +190,8 @@ jobs:
               git push origin "$TAG"
             fi
             gh release create "$TAG" "$asset" \
-              --title "Test build ${TAG#v}" \
+              --title "Test build $TAG" \
               --notes "$notes" \
-              --prerelease="$PRERELEASE" \
               --latest=false
             echo "Opened release $TAG with the APK."
           else

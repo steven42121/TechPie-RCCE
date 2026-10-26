@@ -1,3 +1,67 @@
+/// What identifies a release: a [`ProductVersion`] semver or the fork's
+/// date-stamped [`BuildStamp`]. Only the comparison helpers below need to tell
+/// them apart.
+abstract interface class VersionId {
+  /// The text a user would see or copy.
+  String get text;
+}
+
+/// The fork's build ids, dated in Beijing time: `26h2-102610` is 2026 H2,
+/// October 26, 10:00. Every build gets its own stamp and release, so updates
+/// are "is there a newer stamp" rather than "which semver is bigger" — and
+/// since the scheme began after 1.0.2, a stamp outranks every semver.
+class BuildStamp implements VersionId {
+  const BuildStamp(this.year, this.half, this.digits);
+
+  final int year;
+  final int half;
+
+  /// `MMDDHH` in Beijing time.
+  final int digits;
+
+  static final RegExp _shape = RegExp(r'^(\d{2})h([12])-(\d{6})$');
+
+  static BuildStamp? tryParse(String raw) {
+    final match = _shape.firstMatch(raw.trim());
+    if (match == null) return null;
+    final year = int.tryParse(match.group(1)!);
+    final half = int.tryParse(match.group(2)!);
+    final digits = int.tryParse(match.group(3)!);
+    if (year == null || half == null || digits == null) return null;
+    return BuildStamp(year, half, digits);
+  }
+
+  int get _rank => year * 100000000 + half * 10000000 + digits;
+
+  /// Stamps order among themselves by their rank; this is only ever asked
+  /// stamp-to-stamp — [compareVersionIds] handles the cross-scheme rule.
+  int compareTo(BuildStamp other) => _rank.compareTo(other._rank);
+
+  @override
+  String get text =>
+      '${year.toString().padLeft(2, '0')}h$half-${digits.toString().padLeft(6, '0')}';
+
+  @override
+  String toString() => text;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BuildStamp && other.year == year && other.half == half && other.digits == digits;
+
+  @override
+  int get hashCode => Object.hash(year, half, digits);
+}
+
+/// Orders two release ids: stamps always outrank semvers (they began later),
+/// stamps order by rank and semvers by their own rules.
+int compareVersionIds(VersionId a, VersionId b) {
+  if (a is BuildStamp) {
+    return b is BuildStamp ? a.compareTo(b) : 1;
+  }
+  if (b is BuildStamp) return -1;
+  return (a as ProductVersion).compareTo(b as ProductVersion);
+}
+
 /// A product version — the number a user sees (`X.Y.Z`, optionally an `-rc.N`
 /// candidate) together with the `+B` build number that tells two builds of one
 /// version apart (CLAUDE.md → Releasing).
@@ -14,7 +78,7 @@
 /// The ordering puts a candidate below the version it leads to, which is what makes
 /// the update check: nobody running `1.0.1` is offered `1.0.1-rc.2`, while
 /// everybody on a candidate is offered the `1.0.1` it led to.
-class ProductVersion implements Comparable<ProductVersion> {
+class ProductVersion implements Comparable<ProductVersion>, VersionId {
   const ProductVersion(this.major, this.minor, this.patch, [this.candidate, this.build]);
 
   final int major;
@@ -93,6 +157,9 @@ class ProductVersion implements Comparable<ProductVersion> {
 
   @override
   int get hashCode => Object.hash(major, minor, patch, candidate, build);
+
+  @override
+  String get text => toString();
 
   @override
   String toString() =>

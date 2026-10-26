@@ -28,7 +28,7 @@ void main() {
       }),
     );
 
-    final release = await service.checkForUpdate(const ProductVersion(1, 0, 1, 2));
+    final release = await service.checkForUpdate('1.0.1-rc.2');
 
     expect(release, isNotNull);
     expect(release!.version, const ProductVersion(1, 0, 2, null, 7));
@@ -55,13 +55,13 @@ void main() {
       ),
     );
 
-    expect(await service.checkForUpdate(const ProductVersion(1, 0, 1)), isNull);
-    expect(await service.checkForUpdate(const ProductVersion(1, 0, 2)), isNull);
+    expect(await service.checkForUpdate('1.0.1'), isNull);
+    expect(await service.checkForUpdate('1.0.2'), isNull);
 
     // But a candidate of the published version is not the newest thing: the
     // stable release it led to is newer, so it is offered.
     final fromCandidate =
-        await service.checkForUpdate(const ProductVersion(1, 0, 1, 2));
+        await service.checkForUpdate('1.0.1-rc.2');
     expect(fromCandidate!.version, const ProductVersion(1, 0, 1, null, 5));
   });
 
@@ -81,7 +81,7 @@ void main() {
       ),
     );
 
-    final release = await service.checkForUpdate(const ProductVersion(1, 0, 1));
+    final release = await service.checkForUpdate('1.0.1');
     expect(release!.version, const ProductVersion(1, 0, 2, 3, 9));
   });
 
@@ -96,7 +96,7 @@ void main() {
       ),
     );
 
-    final release = await service.checkForUpdate(const ProductVersion(1, 0, 1, null, 12));
+    final release = await service.checkForUpdate('1.0.1+12');
 
     expect(release, isNotNull);
     expect(release!.version, const ProductVersion(1, 0, 1, null, 13));
@@ -106,7 +106,7 @@ void main() {
 
     // And a build that is already the newer one is told nothing.
     expect(
-      await service.checkForUpdate(const ProductVersion(1, 0, 1, null, 13)),
+      await service.checkForUpdate('1.0.1+13'),
       isNull,
     );
   });
@@ -121,7 +121,7 @@ void main() {
     );
 
     expect(
-      () => service.checkForUpdate(const ProductVersion(1, 0, 1)),
+      () => service.checkForUpdate('1.0.1'),
       throwsA(isA<UpdateCheckException>()),
     );
   });
@@ -146,11 +146,53 @@ void main() {
     );
 
     final release =
-        await service.checkForUpdate(const ProductVersion(1, 0, 2, null, 8));
+        await service.checkForUpdate('1.0.2+8');
 
     expect(release!.version, const ProductVersion(1, 0, 3, 1, 9));
     expect(release.name, 'v1.0.3-rc.1');
     expect(release.notes, 'newer');
+  });
+
+  test('offers a stamped release over any semver build', () async {
+    // The fork moved to date-stamped builds (26h2-102610 = 2026 H2, Oct 26,
+    // 10:00); they began after 1.0.2, so they outrank every semver release.
+    final service = UpdateService(
+      client: _FakeClient(
+        (_) async => _jsonResponse([
+          {'tag_name': '26h2-102610', 'name': '26h2-102610', 'body': 'n'},
+          {'tag_name': 'v1.0.2+14', 'name': 'v1.0.2', 'body': 'n'},
+        ]),
+      ),
+    );
+
+    final release = await service.checkForUpdate('1.0.2+13');
+    expect(release, isNotNull);
+    expect(release!.version, const BuildStamp(26, 2, 102610));
+    expect(release.name, '26h2-102610');
+  });
+
+  test('a stamped build only updates when the stamp moved', () async {
+    final service = UpdateService(
+      client: _FakeClient(
+        (_) async => _jsonResponse([
+          {'tag_name': '26h2-102610', 'name': '26h2-102610', 'body': 'n'},
+        ]),
+      ),
+    );
+
+    expect(await service.checkForUpdate('26h2-102610'), isNull);
+    expect(await service.checkForUpdate('26h2-102609'), isNotNull);
+  });
+
+  test('refuses an unreadable running version instead of guessing', () async {
+    final service = UpdateService(
+      client: _FakeClient((_) async => _jsonResponse(const [])),
+    );
+
+    expect(
+      () => service.checkForUpdate('nightly'),
+      throwsA(isA<UpdateCheckException>()),
+    );
   });
 
   test('a request that hangs fails on a deadline instead of never', () async {
@@ -168,7 +210,7 @@ void main() {
     );
 
     await expectLater(
-      service.checkForUpdate(const ProductVersion(1, 0, 1)),
+      service.checkForUpdate('1.0.1'),
       throwsA(
         isA<UpdateCheckException>().having(
           (error) => error.message,
@@ -187,7 +229,7 @@ void main() {
       ),
     );
     expect(
-      () => rateLimited.checkForUpdate(const ProductVersion(1, 0, 1)),
+      () => rateLimited.checkForUpdate('1.0.1'),
       throwsA(isA<UpdateCheckException>()),
     );
 
@@ -195,7 +237,7 @@ void main() {
       client: _FakeClient((_) async => throw const SocketExceptionStub()),
     );
     expect(
-      () => unreachable.checkForUpdate(const ProductVersion(1, 0, 1)),
+      () => unreachable.checkForUpdate('1.0.1'),
       throwsA(isA<UpdateCheckException>()),
     );
   });

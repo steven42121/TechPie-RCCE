@@ -121,9 +121,13 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
       setState(() {
-        _appVersion = info.buildNumber.isNotEmpty
-            ? '${info.version}+${info.buildNumber}'
-            : info.version;
+        // A stamped build shows its stamp alone; the numeric versionCode
+        // behind it is packaging detail, not something a user compares.
+        _appVersion = BuildStamp.tryParse(info.version) != null
+            ? info.version
+            : info.buildNumber.isNotEmpty
+                ? '${info.version}+${info.buildNumber}'
+                : info.version;
       });
     } catch (error) {
       // Never let the tile's failure take the page down, but do say why.
@@ -139,20 +143,10 @@ class _SettingsPageState extends State<SettingsPage> {
   /// build for this platform lives.
   Future<void> _checkForUpdate() async {
     final updateService = ServiceProvider.of(context).updateService;
-    final current = ProductVersion.tryParse(_appVersion);
-    if (current == null) {
-      await showAdaptiveAlertDialog<void>(
-        context: context,
-        title: '无法检查更新',
-        message: '当前版本号（$_appVersion）无法识别，没法与 GitHub 上的版本比较。',
-        actions: const [AdaptiveAlertAction<void>(label: '好')],
-      );
-      return;
-    }
 
     setState(() => _checkingUpdate = true);
     try {
-      final release = await updateService.checkForUpdate(current);
+      final release = await updateService.checkForUpdate(_appVersion);
       if (!mounted) return;
 
       if (release == null) {
