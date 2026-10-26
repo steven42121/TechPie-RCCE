@@ -21,6 +21,7 @@ import '../widgets/app_card.dart';
 import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/tg_glass_surface.dart';
 import 'generic_webview_page.dart';
 import 'login_page.dart';
 
@@ -254,7 +255,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       appBar: useIosChrome
           ? const IosNativeNavigationBar(title: 'Home', largeTitleMode: true)
           : const BlurredAppBar(title: Text('Home')),
-      body: ListView(
+      body: BackdropGroup(
+        child: ListView(
         padding: EdgeInsets.fromLTRB(
           16,
           topInset,
@@ -262,7 +264,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           AppShellMetrics.bottomContentPaddingOf(context),
         ),
         children: [
-          Card.filled(
+          TgGlassCard(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -297,6 +299,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           _buildPendingAssignments(theme),
           if (isDebug) ...[const SizedBox(height: 16), _buildDebugPanel(theme)],
         ],
+        ),
       ),
     );
   }
@@ -307,8 +310,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }) {
     final theme = Theme.of(context);
 
-    return Card.outlined(
-      clipBehavior: Clip.antiAlias,
+    return TgGlassCard(
       child: AnimatedSize(
         duration: appAnimationDuration(
           context,
@@ -407,8 +409,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
     }
 
-    return Card.outlined(
-      clipBehavior: Clip.antiAlias,
+    return TgGlassCard(
       child: AnimatedSize(
         duration: appAnimationDuration(
           context,
@@ -508,8 +509,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
     }
 
-    return Card.outlined(
-      clipBehavior: Clip.antiAlias,
+    return TgGlassCard(
       child: AnimatedSize(
         duration: appAnimationDuration(
           context,

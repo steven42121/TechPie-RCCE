@@ -48,17 +48,20 @@ abstract final class TgGlass {
   /// Liquid-glass specular sheen drawn over the surface: a strong top-left
   /// highlight that fades out toward the bottom-right, reading as gloss on
   /// clear glass rather than a barely-there tint.
-  static Gradient sheen(Brightness brightness) {
-    final peak = brightness == Brightness.light ? 0.32 : 0.20;
-    return LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        const Color(0xFFFFFFFF).withValues(alpha: peak),
-        const Color(0xFFFFFFFF).withValues(alpha: peak * 0.15),
-      ],
-    );
-  }
+  static Gradient sheen(Brightness brightness) =>
+      brightness == Brightness.light ? _sheenLight : _sheenDark;
+
+  // Peak 0.32 (light) / 0.20 (dark), tapering to 15% of the peak.
+  static const LinearGradient _sheenLight = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0x52FFFFFF), Color(0x0CFFFFFF)],
+  );
+  static const LinearGradient _sheenDark = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0x33FFFFFF), Color(0x08FFFFFF)],
+  );
 
   /// Inverse src-over solve (`solveSrcColor`, the heart of the recipe):
   /// given the color [behind] the glass and the [target] color the glass
@@ -83,10 +86,14 @@ abstract final class TgGlass {
   /// Backdrop filter: gaussian blur then saturation ×3, matching the
   /// original's RenderEffect chain (blur radius ≈40dp at 8× downsample —
   /// a sigma in the low twenties at full resolution).
-  static ImageFilter backdrop({double sigma = 24}) => ImageFilter.compose(
-        outer: const ColorFilter.matrix(_saturation3),
-        inner: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-      );
+  static final ImageFilter backdropFilter = ImageFilter.compose(
+    outer: const ColorFilter.matrix(_saturation3),
+    inner: ImageFilter.blur(sigmaX: _backdropSigma, sigmaY: _backdropSigma),
+  );
+
+  static ImageFilter backdrop() => backdropFilter;
+
+  static const double _backdropSigma = 24;
 
   // Luminance-weighted saturation matrix for s = 3:
   // sr = (1-s)*0.213, sg = (1-s)*0.715, sb = (1-s)*0.072.

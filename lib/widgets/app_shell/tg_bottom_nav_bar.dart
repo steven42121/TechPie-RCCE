@@ -5,10 +5,9 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 
-import '../../services/theme_service.dart';
-import '../../utils/glass.dart';
 import '../../utils/haptics.dart';
 import '../../utils/motion.dart';
+import '../tg_glass_surface.dart';
 import 'app_destination.dart';
 
 /// Telegram-style bottom navigation bar, ported from the official client's
@@ -251,41 +250,7 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final brightness = theme.brightness;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    const capsule = BorderRadius.all(
-      Radius.circular(TgBottomNavBar.barHeight / 2),
-    );
-
-    // Glass fill via inverse src-over: declare the final glass color
-    // (official: light #FFFFFF / dark #232324 — mapped to the closest
-    // surface-container tones so dynamic color keeps working), derive the
-    // translucent overlay against what's actually behind the bar. `classic`
-    // skips the solve: the capsule is simply opaque.
-    final glass = GlassTheme.of(context);
-    final glassTarget =
-        brightness == Brightness.light ? scheme.surfaceContainerLowest : scheme.surfaceContainer;
-    final glassFill = glass.translucent
-        ? TgGlass.solveSrcColor(
-            scheme.surface,
-            glassTarget,
-            alpha: glass.overlayAlpha,
-          )
-        : glassTarget;
-    // The bevel is the mode's clearest at-rest signal: a material outline on
-    // `classic`, the studied hairline on `frosted`, a bright rim on `liquid`.
-    final strokeTop = glass.sheen
-        ? TgGlass.liquidStrokeTop(brightness)
-        : glass.translucent
-            ? TgGlass.strokeTop(brightness)
-            : scheme.outlineVariant;
-    final strokeBottom = glass.sheen
-        ? TgGlass.liquidStrokeBottom(brightness)
-        : glass.translucent
-            ? TgGlass.strokeBottom(brightness)
-            : scheme.outlineVariant;
-    final strokeWidth =
-        glass.sheen ? TgGlass.liquidStrokeWidth : TgGlass.strokeWidth;
 
     final barScale = 1 + 0.019 * _barScaleT.setBool(_dragging);
 
@@ -309,77 +274,47 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
               child: Transform.scale(
                 scale: barScale,
                 origin: _scalePivot,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: capsule,
-                    boxShadow: [
-                      BoxShadow(
-                        color: TgGlass.shadowColor(brightness),
-                        blurRadius: TgGlass.shadowBlur,
-                        offset: const Offset(0, TgGlass.shadowDy),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: capsule,
-                    child: _GlassComposite(
-                      glass: glass,
-                      brightness: brightness,
-                      child: CustomPaint(
-                        foregroundPainter: _GlassStrokePainter(
-                          top: strokeTop,
-                          bottom: strokeBottom,
-                          radius: TgBottomNavBar.barHeight / 2,
-                          strokeWidth: strokeWidth,
-                        ),
-                        child: Container(
-                          height: TgBottomNavBar.barHeight,
-                          decoration: BoxDecoration(
-                            color: glassFill,
-                            borderRadius: capsule,
+                child: TgGlassSurface(
+                  radius: TgBottomNavBar.barHeight / 2,
+                  height: TgBottomNavBar.barHeight,
+                  // MainTabsLayout padding = MARGIN + 4 = 12, of which 8 is
+                  // the glass inset — cells sit 4dp inside.
+                  padding: const EdgeInsets.all(4),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      _contentWidth = constraints.maxWidth;
+                      _contentHeight = constraints.maxHeight;
+                      return RawGestureDetector(
+                        gestures: {
+                          LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<
+                              LongPressGestureRecognizer>(
+                            // ClickHelper long-press = system × 0.75.
+                            () => LongPressGestureRecognizer(
+                              duration: const Duration(milliseconds: 375),
+                              debugOwner: this,
+                            ),
+                            (recognizer) => recognizer
+                              ..onLongPressStart = _onLongPressStart
+                              ..onLongPressMoveUpdate = _onLongPressMove
+                              ..onLongPressEnd = _onLongPressEnd,
                           ),
-                          // MainTabsLayout padding = MARGIN + 4 = 12, of which
-                          // 8 is the glass inset — cells sit 4dp inside.
-                          padding: const EdgeInsets.all(4),
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              _contentWidth = constraints.maxWidth;
-                              _contentHeight = constraints.maxHeight;
-                              return RawGestureDetector(
-                                gestures: {
-                                  LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<
-                                      LongPressGestureRecognizer>(
-                                    // ClickHelper long-press = system × 0.75.
-                                    () => LongPressGestureRecognizer(
-                                      duration: const Duration(milliseconds: 375),
-                                      debugOwner: this,
-                                    ),
-                                    (recognizer) => recognizer
-                                      ..onLongPressStart = _onLongPressStart
-                                      ..onLongPressMoveUpdate = _onLongPressMove
-                                      ..onLongPressEnd = _onLongPressEnd,
-                                  ),
-                                },
-                                child: CustomPaint(
-                                  painter: _FreeCapsulePainter(
-                                    visible: _capsuleDetached,
-                                    centerX: _capsuleDetached ? _freeCapsuleX : 0,
-                                    cellWidth: _cellWidth,
-                                    color: scheme.primary,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      for (var i = 0; i < widget.destinations.length; i++)
-                                        Expanded(child: _buildTab(i, scheme)),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
+                        },
+                        child: CustomPaint(
+                          painter: _FreeCapsulePainter(
+                            visible: _capsuleDetached,
+                            centerX: _capsuleDetached ? _freeCapsuleX : 0,
+                            cellWidth: _cellWidth,
+                            color: scheme.primary,
+                          ),
+                          child: Row(
+                            children: [
+                              for (var i = 0; i < widget.destinations.length; i++)
+                                Expanded(child: _buildTab(i, scheme)),
+                            ],
                           ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -466,47 +401,6 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
 
 }
 
-/// Composites the capsule over the page content behind it: a blur in the
-/// translucent modes — with the saturation boost and a specular sheen on top
-/// in liquid mode — and plain paint in `classic`.
-class _GlassComposite extends StatelessWidget {
-  const _GlassComposite({
-    required this.glass,
-    required this.brightness,
-    required this.child,
-  });
-
-  final GlassTheme glass;
-  final Brightness brightness;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!glass.translucent) return child;
-
-    final blurred = BackdropFilter(
-      filter: TgGlass.backdrop(),
-      child: child,
-    );
-    if (!glass.sheen) return blurred;
-
-    return Stack(
-      children: [
-        blurred,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: TgGlass.sheen(brightness),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 /// The per-tab selection capsule (`GlassTabView.dispatchDraw`): full cell
 /// bounds rounded to a stadium, accent color at 9% alpha (further eased with
 /// decelerate), scaling in from 0.6 around the cell center.
@@ -577,45 +471,4 @@ class _FreeCapsulePainter extends CustomPainter {
       old.centerX != centerX ||
       old.cellWidth != cellWidth ||
       old.color != color;
-}
-
-/// The 0.4dp glass bevel: one stroked capsule whose color runs from the top
-/// hairline to the bottom hairline (`strokePathTop`/`strokePathBottom` in
-/// `BlurredBackgroundDrawable`, collapsed into a vertical gradient stroke).
-class _GlassStrokePainter extends CustomPainter {
-  const _GlassStrokePainter({
-    required this.top,
-    required this.bottom,
-    required this.radius,
-    this.strokeWidth = TgGlass.strokeWidth,
-  });
-
-  final Color top;
-  final Color bottom;
-  final double radius;
-  final double strokeWidth;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = (Offset.zero & size).deflate(strokeWidth / 2);
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [top, bottom],
-      ).createShader(rect);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(radius)),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _GlassStrokePainter old) =>
-      old.top != top ||
-      old.bottom != bottom ||
-      old.radius != radius ||
-      old.strokeWidth != strokeWidth;
 }
