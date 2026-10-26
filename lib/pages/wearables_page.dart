@@ -35,9 +35,8 @@ class _WearablesPageState extends State<WearablesPage> {
   List<WearableDevice> _load() {
     final stored = ServiceProvider.of(context).storageService.storedWearableDevices;
     if (stored != null) return stored;
-    if (isAndroid()) {
-      return [wearableBandCatalog.firstWhere((device) => device.id == 'band9')];
-    }
+    // iOS keeps its paired Apple Watch entry; bands are user-added only —
+    // an empty list is the truth for a fresh install, not a default model.
     if (isIos()) return const [appleWatchDevice];
     return const [];
   }
