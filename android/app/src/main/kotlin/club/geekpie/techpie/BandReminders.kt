@@ -10,6 +10,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -26,9 +28,21 @@ object BandReminders {
 
     private const val PREFS = "techpie_band_reminders"
     private const val ITEMS_KEY = "items"
+    private const val NODE_ID_KEY = "band_node_id"
     private const val MAX_REMINDERS = 64
 
     data class Item(val atMillis: Long, val title: String, val body: String)
+
+    /** 记住最近连上的手环节点：广播进程冷启动时不必重新等设备发现。 */
+    fun rememberNode(context: Context, nodeId: String) {
+        if (nodeId.isBlank()) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(NODE_ID_KEY, nodeId).apply()
+    }
+
+    fun knownNode(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(NODE_ID_KEY, null)?.takeIf { it.isNotBlank() }
 
     fun schedule(context: Context, items: List<Item>) {
         cancelAll(context)
@@ -131,6 +145,11 @@ object BandReminders {
         }
 }
 
+/**
+ * 到点时系统可能为新进程触发广播：穿戴 SDK 的服务绑定是异步的，第一次
+ * getConnectedNodes() 往往还是空列表，而旧实现只查一次就静默放弃，于是
+ * 手机有通知、手环没动静。这里先试上次连过的节点，再短轮询发现，失败留日志。
+ */
 class BandReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != BandReminders.ACTION) return
@@ -138,19 +157,85 @@ class BandReminderReceiver : BroadcastReceiver() {
         val body = intent.getStringExtra(BandReminders.EXTRA_BODY) ?: ""
         // 手机端同时震动提醒；手环不在连接时用户也不会错过。
         notifyPhone(context, title, body)
+        val appContext = context.applicationContext
         val pendingResult = goAsync()
+        val done = {
+            runCatching { pendingResult.finish() }
+            Unit
+        }
+        val known = BandReminders.knownNode(appContext)
+        if (known != null) {
+            send(appContext, known, title, body) { delivered ->
+                if (delivered) {
+                    done()
+                } else {
+                    discover(appContext, ATTEMPTS) { nodeId ->
+                        if (nodeId == null) {
+                            Log.w(TAG, "band reminder not delivered: no reachable node")
+                            done()
+                        } else {
+                            send(appContext, nodeId, title, body) { done() }
+                        }
+                    }
+                }
+            }
+        } else {
+            discover(appContext, ATTEMPTS) { nodeId ->
+                if (nodeId == null) {
+                    Log.w(TAG, "band reminder not delivered: no reachable node")
+                    done()
+                } else {
+                    send(appContext, nodeId, title, body) { done() }
+                }
+            }
+        }
+    }
+
+    /** 冷启动时 SDK 可能还没绑定好，轮询几次再判定"没有设备"。 */
+    private fun discover(context: Context, attemptsLeft: Int, onDone: (String?) -> Unit) {
         Wearable.getNodeApi(context).getConnectedNodes()
             .addOnSuccessListener { nodes ->
-                val node = nodes.firstOrNull()
-                if (node == null) {
-                    pendingResult.finish()
-                    return@addOnSuccessListener
+                val id = nodes.firstOrNull()?.id
+                if (id != null) {
+                    BandReminders.rememberNode(context, id)
+                    onDone(id)
+                } else {
+                    retryDiscovery(context, attemptsLeft, onDone)
                 }
-                Wearable.getNotifyApi(context).sendNotify(node.id, title, body)
-                    .addOnSuccessListener { pendingResult.finish() }
-                    .addOnFailureListener { pendingResult.finish() }
             }
-            .addOnFailureListener { pendingResult.finish() }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "getConnectedNodes failed: ${error.message}")
+                retryDiscovery(context, attemptsLeft, onDone)
+            }
+    }
+
+    private fun retryDiscovery(context: Context, attemptsLeft: Int, onDone: (String?) -> Unit) {
+        if (attemptsLeft <= 1) {
+            onDone(null)
+            return
+        }
+        Handler(Looper.getMainLooper()).postDelayed(
+            { discover(context, attemptsLeft - 1, onDone) },
+            DISCOVERY_INTERVAL_MS,
+        )
+    }
+
+    private fun send(
+        context: Context,
+        nodeId: String,
+        title: String,
+        body: String,
+        onDone: (Boolean) -> Unit,
+    ) {
+        Wearable.getNotifyApi(context).sendNotify(nodeId, title, body)
+            .addOnSuccessListener {
+                Log.i(TAG, "band reminder delivered to $nodeId")
+                onDone(true)
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "sendNotify to $nodeId failed: ${error.message}")
+                onDone(false)
+            }
     }
 
     private fun notifyPhone(context: Context, title: String, body: String) {
@@ -183,8 +268,13 @@ class BandReminderReceiver : BroadcastReceiver() {
     }
 
     private companion object {
+        const val TAG = "BandReminders"
         const val CHANNEL_ID = "band_reminder"
         const val NOTIFY_ID = 48292
+
+        /** 冷启动时等 SDK 绑定完成：5 次 × 1.2s，留在广播的 10s 预算内。 */
+        const val ATTEMPTS = 5
+        const val DISCOVERY_INTERVAL_MS = 1200L
     }
 }
 

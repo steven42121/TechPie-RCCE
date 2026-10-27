@@ -280,6 +280,8 @@ class BandBridge(
     private fun setupNode(node: Node, onDone: (() -> Unit)? = null) {
         nodeId = node.id
         nodeName = node.name?.trim()
+        // 广播进程冷启动时靠它直接推提醒，不必重新等待设备发现。
+        BandReminders.rememberNode(context, node.id)
         Log.i(TAG, "node ${node.id} ($nodeName)")
         Wearable.getAuthApi(context).checkPermission(node.id, Permission.DEVICE_MANAGER)
             .addOnSuccessListener { granted ->
