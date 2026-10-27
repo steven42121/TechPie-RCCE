@@ -247,10 +247,11 @@ jobs:
     needs: [decide, build-and-publish]
     if: needs.decide.outputs.desktop == 'true'
     runs-on: ubuntu-latest
-    # A cold Linux desktop build configures CMake, compiles every plugin, then
-    # links the runner and bundles the engine: the same order of magnitude as
-    # the Android build.
-    timeout-minutes: 60
+    # Measured on the first run: `flutter build linux` took 41 s and the
+    # packaging seconds, while the apt install below took 36 minutes — the Qt 6
+    # and WebKitGTK dependency sets are the long pole, not the compile. The
+    # ceiling belongs to that install, and 60 minutes gave it no room.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v7
