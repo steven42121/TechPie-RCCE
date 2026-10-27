@@ -6,6 +6,7 @@ import club.geekpie.techpie.keepalive.KeepAliveService
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
 
 /**
  * The schedule-island channel: capability probing, frame updates and dismissal.
@@ -33,6 +34,11 @@ class IslandBridge(
                     dismiss()
                     result.success(true)
                 }
+                "scheduleFrames" -> scheduleFrames(call, result)
+                "cancelFrames" -> {
+                    IslandAlarms.cancelAll(appContext)
+                    result.success(true)
+                }
                 "requestPermission" -> result.success(requestPermission?.invoke() ?: false)
                 else -> result.notImplemented()
             }
@@ -47,6 +53,29 @@ class IslandBridge(
         } else {
             factory.cancel(IslandNotificationFactory.NOTIFICATION_ID)
         }
+    }
+
+    /** Precomputed frames from the Dart side, posted by AlarmManager later. */
+    private fun scheduleFrames(call: MethodCall, result: MethodChannel.Result) {
+        val raw = call.argument<String>("frames") ?: "[]"
+        val items = mutableListOf<IslandAlarms.Item>()
+        try {
+            val array = JSONArray(raw)
+            for (i in 0 until array.length()) {
+                val entry = array.getJSONObject(i)
+                val frame = if (entry.isNull("frame")) {
+                    null
+                } else {
+                    entry.getJSONObject("frame").toString()
+                }
+                items.add(IslandAlarms.Item(entry.getLong("at"), frame))
+            }
+        } catch (error: Exception) {
+            result.error("BAD_FRAMES", error.message, null)
+            return
+        }
+        IslandAlarms.schedule(appContext, items)
+        result.success(items.size)
     }
 
     fun dispose() {

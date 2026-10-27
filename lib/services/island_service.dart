@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import '../models/assignment.dart';
+import '../models/course.dart';
 import '../models/island_frame.dart';
 import '../utils/platform.dart';
 import '../utils/today_courses.dart';
@@ -63,6 +64,7 @@ final class IslandService {
   final MethodChannel _channel;
 
   Timer? _timer;
+  Timer? _timelineDebounce;
   DateTime? _lastRefresh;
   bool _showing = false;
   bool _started = false;
@@ -90,10 +92,12 @@ final class IslandService {
     unawaited(syncBackgroundRefresh(_storage));
     if (!value) {
       await dismiss(force: true);
+      await _invokeQuiet('cancelFrames');
       return;
     }
     await _requestNotificationPermission();
     await refreshNow(force: true);
+    await scheduleTimeline();
   }
 
   /// Follow the schedule and deadlines while the app runs; the platform side
@@ -108,11 +112,15 @@ final class IslandService {
     _assignments.addListener(_onDataChanged);
     _timer = Timer.periodic(_tick, (_) => unawaited(refreshNow()));
     unawaited(refreshNow(force: true));
+    // The platform keeps painting frames once this process is gone.
+    unawaited(scheduleTimeline());
   }
 
   void dispose() {
     _timer?.cancel();
     _timer = null;
+    _timelineDebounce?.cancel();
+    _timelineDebounce = null;
     if (!_started) return;
     _started = false;
     _schedule.removeListener(_onDataChanged);
@@ -175,6 +183,93 @@ final class IslandService {
 
   Future<void> _onDataChanged() async {
     await refreshNow();
+    // A schedule/assignment load arrives as a burst of changes; rescheduling is
+    // a full alarm rebuild, so let it settle first.
+    _timelineDebounce?.cancel();
+    _timelineDebounce = Timer(
+      const Duration(seconds: 2),
+      () => unawaited(scheduleTimeline()),
+    );
+  }
+
+  /// Precompute the frames for the next days so the platform can post them with
+  /// AlarmManager while this process is gone. A null frame is a dismissal.
+  Future<void> scheduleTimeline() async {
+    if (!supported) return;
+    if (!enabled) {
+      await _invokeQuiet('cancelFrames');
+      return;
+    }
+    final now = DateTime.now();
+    final deadlines = _openDeadlines();
+    final byTime = <int, IslandFrame?>{};
+    for (var offset = 0; offset <= 2; offset++) {
+      final day = DateTime(now.year, now.month, now.day).add(
+        Duration(days: offset),
+      );
+      final courses = coursesOnDay(_schedule, _assignments, day);
+      for (final course in courses) {
+        final startMinutes = parseClockMinutes(course.startTime);
+        final endMinutes = parseClockMinutes(course.endTime);
+        if (startMinutes == null || endMinutes == null) continue;
+        final start = DateTime(
+          day.year,
+          day.month,
+          day.day,
+          startMinutes ~/ 60,
+          startMinutes % 60,
+        );
+        final end = DateTime(
+          day.year,
+          day.month,
+          day.day,
+          endMinutes ~/ 60,
+          endMinutes % 60,
+        );
+        for (final at in <DateTime>[
+          start.subtract(nextClassLead),
+          start.subtract(const Duration(minutes: 30)),
+          start.subtract(const Duration(minutes: 10)),
+          start,
+          end,
+        ]) {
+          if (!at.isAfter(now)) continue;
+          final frame = buildIslandFrame(
+            dayCourses: courses,
+            upcomingDeadlines: deadlines,
+            now: at,
+          );
+          final key = at.millisecondsSinceEpoch;
+          // A frame wins over a dismissal scheduled at the same moment.
+          if (byTime[key] == null || frame != null) byTime[key] = frame;
+        }
+      }
+    }
+    final events = byTime.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final payload = [
+      for (final entry in events)
+        {'at': entry.key, 'frame': entry.value?.toJson()},
+    ];
+    try {
+      await _channel.invokeMethod<int>('scheduleFrames', {
+        'frames': jsonEncode(payload),
+      });
+    } on PlatformException {
+      // Best effort: the in-process refresh still runs while the app is open.
+    } on MissingPluginException {
+      // Non-Android platforms do not register the channel.
+    }
+  }
+
+  Future<void> _invokeQuiet(String method) async {
+    try {
+      await _channel.invokeMethod<Object?>(method);
+    } on PlatformException {
+      // Best effort.
+    } on MissingPluginException {
+      // Non-Android platforms do not register the channel.
+    }
   }
 
   Future<void> _requestNotificationPermission() async {

@@ -19,6 +19,17 @@ import club.geekpie.techpie.island.IslandNotificationFactory
 object KeepAlive {
     @Volatile
     var enabled: Boolean = false
+
+    /**
+     * A receiver woken by an alarm runs in a fresh process where [enabled] is
+     * still false; ask the persisted preference instead, or the island would
+     * forget that the user wants the process kept.
+     */
+    fun isEnabled(context: Context): Boolean =
+        enabled || runCatching {
+            context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                .getBoolean("flutter.keep_alive_enabled", false)
+        }.getOrDefault(false)
 }
 
 /**
