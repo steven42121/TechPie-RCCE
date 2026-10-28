@@ -8,6 +8,7 @@ import 'package:techpie/utils/platform.dart';
 import 'package:techpie/widgets/page_refresh.dart';
 
 import '../../app/app_providers.dart';
+import '../../application/campus_network_status.dart';
 import '../../application/confirmed_disconnect_feedback.dart';
 import '../../core/config/debug_mode_controller.dart';
 import '../../core/config/debug_mode_features.dart';
@@ -76,6 +77,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   bool _active = false;
   int _activityRevision = 0;
   late final ConfirmedDisconnectFeedback _disconnectFeedback;
+  late final CampusNetworkStatus _networkStatus;
 
   bool get _allowAutomaticOffline =>
       !_refreshWaiting || !_deferOfflineDuringRefresh || _refreshWaitExpired;
@@ -94,10 +96,12 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     _refreshWaitTimer = Timer(const Duration(milliseconds: 1500), () {
       if (!mounted || !_active || revision != _refreshWaitRevision || !_refreshWaiting) return;
       setState(() => _refreshWaitExpired = true);
+      _networkStatus.setSlowCode(true);
     });
   }
 
   void _endRefreshWait({bool rebuild = true}) {
+    _networkStatus.setSlowCode(false);
     _refreshWaitTimer?.cancel();
     _refreshWaitTimer = null;
     ++_refreshWaitRevision;
@@ -117,8 +121,12 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   void initState() {
     super.initState();
     final runtime = ref.read(appRuntimeProvider);
+    _networkStatus = ref.read(campusNetworkStatusProvider);
     _foreground = runtime.lifecycle.current == AppLifecycleState.resumed;
     _lifecycleSubscription = runtime.lifecycle.changes.listen((state) {
+      if (state == AppLifecycleState.resumed) {
+        unawaited(_networkStatus.checkConnection());
+      }
       _foreground = state == AppLifecycleState.resumed;
       _updateActivity(defer: false);
     });
@@ -437,6 +445,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   @override
   Widget build(BuildContext context) {
     final cardAsync = ref.watch(cardControllerProvider);
+    final networkState = ref.watch(campusNetworkStateProvider).valueOrNull ??
+        _networkStatus.state;
     final card = cardAsync.valueOrNull;
     // Starting/finishing a pending poll changes no visible content.
     ref.watch(
@@ -649,6 +659,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                       _ExpandedPaymentPass(
                         card: card,
                         payment: payment,
+                        networkState: networkState,
                         // What the pass shows, and what a tap on the code
                         // means, follows the mode the user chose — not only
                         // the automatic fallback, or a failed local refresh
@@ -660,7 +671,6 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                             !manualOffline &&
                             _onlineInFlight(payment),
                         refreshLoading: _refreshWaiting && _deferOfflineDuringRefresh && (!_refreshWaitExpired || !_offline),
-                        refreshDegraded: _refreshWaiting && _refreshWaitExpired,
                         offlineBusy: _offlineBusy,
                         offlinePayload: _offlinePayload,
                         offlineRemaining: _offlineRemaining,
@@ -860,6 +870,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       builder: (sheetContext) => Consumer(
         builder: (context, ref, _) {
           final payment = ref.watch(paymentCodeControllerProvider);
+          final networkState = ref.watch(campusNetworkStateProvider).valueOrNull ??
+              _networkStatus.state;
           final manualOffline = ref.watch(manualOfflineModeProvider);
           final authorization = ref
               .watch(offlineAuthorizationProvider(card.id))
@@ -869,15 +881,10 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
               manualOffline ||
               authorization == OfflineAuthorizationState.active ||
               authorization == OfflineAuthorizationState.renewalDue;
-          final stateLabel = _refreshWaiting &&
-                  _refreshWaitExpired &&
-                  payment.connectionState != PaymentConnectionState.disconnected
-              ? '在线码响应较慢，已降级'
-              : switch (payment.connectionState) {
-            PaymentConnectionState.online => '网络正常',
+          final stateLabel = switch (networkState) {
             PaymentConnectionState.disconnected => '网络已断开',
-            PaymentConnectionState.apiError => '服务响应异常',
-            PaymentConnectionState.unknown => '正在检测',
+            PaymentConnectionState.apiError => '服务响应异常或响应较慢',
+            _ => '网络正常',
           };
           final latency = payment.requestLatency == null
               ? '--'
@@ -1008,6 +1015,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
   const _ExpandedPaymentPass({
     required this.card,
     required this.payment,
+    required this.networkState,
     required this.offline,
     required this.waitingForOnlineCode,
     required this.offlineBusy,
@@ -1024,13 +1032,12 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     required this.onRefreshOffline,
     required this.onActivateOnline,
     this.refreshLoading = false,
-    this.refreshDegraded = false,
   });
 
   final bool refreshLoading;
-  final bool refreshDegraded;
   final CampusCard card;
   final PaymentCodeViewState payment;
+  final PaymentConnectionState networkState;
   final bool offline;
   final bool waitingForOnlineCode;
   final bool offlineBusy;
@@ -1065,7 +1072,6 @@ final class _ExpandedPaymentPass extends StatelessWidget {
         payment.phase == PaymentCodePhase.displaying ||
         payment.phase == PaymentCodePhase.refreshing ||
         payment.phase == PaymentCodePhase.polling);
-    final degraded = refreshDegraded && payment.connectionState != PaymentConnectionState.disconnected;
     final ownerName = card.detailsAvailable
         // The feature's copy is Chinese, and the host resolves its own locale
         // (English by default) independently of the device: shorten the name to
@@ -1134,30 +1140,17 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                     behavior: HitTestBehavior.opaque,
                                     child: SizedBox.square(
                                       dimension: statusSize,
-                                      child: !degraded && payment.connectionState ==
-                                              PaymentConnectionState.unknown
-                                          ? const CupertinoActivityIndicator(
-                                              color: Colors.white,
-                                            )
-                                          : Image.asset(
-                                              degraded ? GeekPayAssets.warningOnline : switch (payment.connectionState) {
-                                                PaymentConnectionState.online =>
-                                                  GeekPayAssets.online,
-                                                PaymentConnectionState
-                                                      .disconnected =>
-                                                  GeekPayAssets.offline,
-                                                PaymentConnectionState
-                                                      .apiError =>
-                                                  GeekPayAssets.warningOnline,
-                                                PaymentConnectionState
-                                                      .unknown =>
-                                                  GeekPayAssets.online,
-                                              },
-                                              width: statusSize,
-                                              height: statusSize,
-                                              filterQuality: FilterQuality.high,
-                                              gaplessPlayback: true,
-                                            ),
+                                      child: Image.asset(
+                                        switch (networkState) {
+                                          PaymentConnectionState.disconnected => GeekPayAssets.offline,
+                                          PaymentConnectionState.apiError => GeekPayAssets.warningOnline,
+                                          _ => GeekPayAssets.online,
+                                        },
+                                        width: statusSize,
+                                        height: statusSize,
+                                        filterQuality: FilterQuality.high,
+                                        gaplessPlayback: true,
+                                      ),
                                     ),
                                   ),
                                 ),
