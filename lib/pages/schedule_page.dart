@@ -1534,6 +1534,7 @@ class _CourseBlock extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final containerColor = course.color.containerColor(colorScheme);
     final textColor = course.color.onContainerColor(colorScheme);
+    final hasTeachers = course.teachers != null && course.teachers!.isNotEmpty;
 
     return Opacity(
       opacity: course.isGhost ? 0.3 : 1.0,
@@ -1547,28 +1548,40 @@ class _CourseBlock extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final maxH = constraints.maxHeight - 8; // account for padding
+              // Each text line is ~14px tall (12px font, 1.2 leading, 2px gap).
+              // Budget the block from the top down: name first, then time, then
+              // teachers, then location — and drop from the bottom up when the
+              // block is too short for all of it.
+              final lineH = 14.0;
+              final nameLines = (maxH / lineH).floor().clamp(1, 20);
+              final teacherLines = 2;
+              final locationLines = 2;
+              var remaining = maxH;
+              final showTime = course.usesCustomTime && remaining >= lineH;
+              if (showTime) remaining -= lineH;
+              final showTeachers = hasTeachers && remaining >= lineH;
+              if (showTeachers) remaining -= lineH;
+              final showLocation = course.location.isNotEmpty && remaining >= lineH;
+
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Course name: up to 70% of block height
-                    ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: maxH * 0.7),
-                      child: Text(
-                        course.name,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: textColor,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                          height: 1.2,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: (maxH * 0.7 / 14.4).floor().clamp(1, 20),
+                    Text(
+                      course.name,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: textColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                        height: 1.2,
                       ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: nameLines,
                     ),
-                    if (course.usesCustomTime) ...[
-                      const SizedBox(height: 2),
+                    if (showTime) ...[
+                      const SizedBox(height: 1),
                       Text(
                         '${course.startTime}–${course.endTime}',
                         style: theme.textTheme.labelSmall?.copyWith(
@@ -1580,20 +1593,20 @@ class _CourseBlock extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                    if (maxH >= 48 && course.teachers != null && course.teachers!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                    if (showTeachers) ...[
+                      const SizedBox(height: 2),
                       Text(
                         course.teachers!,
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: textColor,
-                          fontSize: 12,
+                          fontSize: 11,
                           height: 1.2,
                         ),
-                        maxLines: 2,
+                        maxLines: teacherLines,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                    if (maxH >= 42 && course.location.isNotEmpty) ...[
+                    if (showLocation) ...[
                       const Spacer(),
                       Text(
                         course.location,
@@ -1602,7 +1615,7 @@ class _CourseBlock extends StatelessWidget {
                           fontSize: 10,
                           height: 1.2,
                         ),
-                        maxLines: (maxH * 0.2 / 12).floor().clamp(1, 5),
+                        maxLines: locationLines,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
