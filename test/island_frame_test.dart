@@ -151,7 +151,38 @@ void main() {
 
     expect(
       frame!.toJson().keys.toList(),
-      ['kind', 'title', 'statusLine', 'subTitle', 'detail'],
+      ['kind', 'title', 'statusLine', 'subTitle', 'detail', 'expiresAt'],
     );
+  });
+
+  test('a running class expires when it ends', () {
+    final frame = buildIslandFrame(
+      dayCourses: [_course(name: '高等数学', start: '08:15', end: '09:55')],
+      upcomingDeadlines: const [],
+      now: mondayMorning,
+    );
+
+    expect(frame!.expiresAt, DateTime(2026, 3, 9, 9, 55));
+  });
+
+  test('an upcoming class expires when it starts', () {
+    final frame = buildIslandFrame(
+      dayCourses: [_course(name: '线性代数', start: '10:15', end: '11:55')],
+      upcomingDeadlines: const [],
+      now: mondayMorning,
+    );
+
+    expect(frame!.expiresAt, DateTime(2026, 3, 9, 10, 15));
+  });
+
+  test('a deadline frame expires at its due time', () {
+    final due = DateTime(2026, 3, 9, 23, 59);
+    final frame = buildIslandFrame(
+      dayCourses: const [],
+      upcomingDeadlines: [_deadline(title: '期中论文', due: due)],
+      now: mondayMorning,
+    );
+
+    expect(frame!.expiresAt, due);
   });
 }

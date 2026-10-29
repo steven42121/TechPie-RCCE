@@ -9,6 +9,7 @@ class IslandFrame {
     required this.statusLine,
     this.subTitle,
     this.detail,
+    this.expiresAt,
   });
 
   /// `class` or `deadline` — what the island is about.
@@ -20,12 +21,19 @@ class IslandFrame {
   final String? subTitle;
   final String? detail;
 
+  /// When this content stops being true: the end of a running class, the start
+  /// of an upcoming one, or a deadline's due time. The platform posts the frame
+  /// with this expiry, so a dismissal alarm the system never delivered cannot
+  /// leave a finished class on screen.
+  final DateTime? expiresAt;
+
   Map<String, Object?> toJson() => {
         'kind': kind,
         'title': title,
         'statusLine': statusLine,
         'subTitle': subTitle,
         'detail': detail,
+        'expiresAt': expiresAt?.millisecondsSinceEpoch,
       };
 
   @override
@@ -73,6 +81,7 @@ IslandFrame? buildIslandFrame({
       subTitle: '${running.startTime}–${running.endTime}',
       statusLine: '上课中',
       detail: running.location,
+      expiresAt: _clockOn(now, parseClockMinutes(running.endTime) ?? 0),
     );
   }
 
@@ -92,6 +101,7 @@ IslandFrame? buildIslandFrame({
           ? '${gap.inMinutes} 分钟后开始'
           : '${upcoming.startTime} 开始',
       detail: upcoming.location,
+      expiresAt: _clockOn(now, parseClockMinutes(upcoming.startTime) ?? 0),
     );
   }
 
@@ -101,6 +111,7 @@ IslandFrame? buildIslandFrame({
       title: deadline.title,
       statusLine: _deadlineStatus(deadline.due, now),
       detail: '${deadline.course} · ${deadline.kind.label}',
+      expiresAt: deadline.due,
     );
   }
 
@@ -136,6 +147,10 @@ String _deadlineStatus(DateTime due, DateTime now) {
   }
   return '${due.difference(now).inHours} 小时后截止';
 }
+
+/// [minutes] after midnight on [now]'s date.
+DateTime _clockOn(DateTime now, int minutes) =>
+    DateTime(now.year, now.month, now.day, minutes ~/ 60, minutes % 60);
 
 String _clock(DateTime value) =>
     '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';

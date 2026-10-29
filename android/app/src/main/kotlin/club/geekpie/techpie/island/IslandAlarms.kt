@@ -61,6 +61,56 @@ object IslandAlarms {
             .edit().remove(ITEMS_KEY).apply()
     }
 
+    /**
+     * HyperOS gives the floating focus slot to one notification at a time, so
+     * another app's message takes the island away from a class that is still
+     * running. Re-posting the same ongoing frame brings it back; this alarm
+     * repeats that quietly until the frame's own expiry, then stops.
+     */
+    fun scheduleRepaint(context: Context, frameJson: String) {
+        val frame = IslandFrame.fromJson(frameJson) ?: return
+        // Only a class is worth holding the slot: a deadline frame would keep
+        // waking the device for most of a day.
+        if (frame.kind != "class") return
+        val expiresAt = frame.expiresAt ?: return
+        val next = System.currentTimeMillis() + REPAINT_INTERVAL_MS
+        // The last repaint is one interval before expiry; the expiry itself is
+        // the dismissal's job (or the notification's own timeout).
+        if (next >= expiresAt) return
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REPAINT_REQUEST_CODE,
+            intentFor(context, frameJson),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val exact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+        if (exact) {
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                next,
+                pendingIntent,
+            )
+        } else {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pendingIntent)
+        }
+    }
+
+    fun cancelRepaint(context: Context) {
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REPAINT_REQUEST_CODE,
+            intentFor(context, null),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        ) ?: return
+        (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pendingIntent)
+        pendingIntent.cancel()
+    }
+
     /** Re-register what survived: AlarmManager forgets everything across a reboot. */
     fun restore(context: Context) {
         val now = System.currentTimeMillis()
@@ -77,6 +127,7 @@ object IslandAlarms {
      */
     fun deliver(context: Context, frameJson: String?, onDone: () -> Unit = {}) {
         if (frameJson == null) {
+            cancelRepaint(context)
             dismiss(context)
             onDone()
             return
@@ -93,11 +144,13 @@ object IslandAlarms {
             Handler(Looper.getMainLooper()).postDelayed({
                 val backend = probe.refresh().backend
                 publish(context, frame, frameJson, backend)
+                scheduleRepaint(context, frameJson)
                 onDone()
             }, RETRY_MS)
             return
         }
         publish(context, frame, frameJson, snapshot.backend)
+        scheduleRepaint(context, frameJson)
         onDone()
     }
 
@@ -201,6 +254,12 @@ object IslandAlarms {
         }
 
     private const val RETRY_MS = 800L
+
+    /** How often a running class re-asserts its slot after another app takes it. */
+    private const val REPAINT_INTERVAL_MS = 5 * 60 * 1000L
+
+    /** Outside the frame range (0 until MAX_EVENTS) so cancelAll never touches it. */
+    private const val REPAINT_REQUEST_CODE = 10000
 }
 
 /** One alarm per precomputed frame; a null extra is the "dismiss" event. */

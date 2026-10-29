@@ -99,6 +99,14 @@ class IslandNotificationFactory(
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
+        // Let the notification retire itself at the moment its content stops
+        // being true. The dismissal alarm is the primary path; this is what
+        // covers a system that dropped or delayed it.
+        frame.expiresAt?.let { at ->
+            val left = at - System.currentTimeMillis()
+            if (left > 0L) builder.setTimeoutAfter(left)
+        }
+
         if (backend == IslandBackend.HYPER_ISLAND) {
             runCatching { islandExtras(frame, notifyId, firstFloat) }
                 .onSuccess(builder::addExtras)

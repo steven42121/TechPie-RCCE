@@ -11,6 +11,10 @@ import org.json.JSONObject
  * @param subTitle short line under the icon: time range / due date
  * @param statusLine capsule status, e.g. 上课中 / 10分钟后开始 / 今天截止
  * @param detail right-column body: classroom / owning course for a deadline
+ * @param expiresAt epoch millis after which the frame is no longer true: the
+ *   end of a running class, the start of an upcoming one, a deadline's due
+ *   time. Posted as the notification's timeout so a dismissal alarm the system
+ *   never delivered cannot leave a finished class on screen.
  */
 data class IslandFrame(
     val kind: String,
@@ -18,6 +22,7 @@ data class IslandFrame(
     val subTitle: String?,
     val statusLine: String,
     val detail: String?,
+    val expiresAt: Long?,
 ) {
     /** Full notification text line. */
     val text: String?
@@ -38,6 +43,7 @@ data class IslandFrame(
                 subTitle = optText(o, "subTitle"),
                 statusLine = o.optString("statusLine"),
                 detail = optText(o, "detail"),
+                expiresAt = o.optLong("expiresAt", 0L).takeIf { it > 0L },
             )
         }
 

@@ -37,6 +37,7 @@ class IslandBridge(
                 "scheduleFrames" -> scheduleFrames(call, result)
                 "cancelFrames" -> {
                     IslandAlarms.cancelAll(appContext)
+                    IslandAlarms.cancelRepaint(appContext)
                     result.success(true)
                 }
                 "requestPermission" -> result.success(requestPermission?.invoke() ?: false)
@@ -46,6 +47,7 @@ class IslandBridge(
     }
 
     private fun dismiss() {
+        IslandAlarms.cancelRepaint(appContext)
         if (KeepAlive.enabled) {
             // The resident process is still wanted — for the band link — so the
             // island's slot falls back to the plain keep-alive notice.
@@ -104,6 +106,9 @@ class IslandBridge(
             } else {
                 factory.updateFrame(frame, backend, IslandNotificationFactory.NOTIFICATION_ID)
             }
+            // Keep a running class on the island even when the focus slot is
+            // taken by another app's notification between frames.
+            IslandAlarms.scheduleRepaint(appContext, frameJson)
             result.success(backend.name.lowercase())
         } catch (e: Exception) {
             result.error("ISLAND_ERROR", e.message, null)
