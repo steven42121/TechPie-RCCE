@@ -39,6 +39,8 @@ class BandService extends ChangeNotifier {
   String? lastError;
   int? lastMessageAt;
   int? lastPongAt;
+  int? lastReminderAt;
+  String? lastReminder;
   bool exactAlarms = true;
   List<String> messages = const [];
 
@@ -444,6 +446,8 @@ class BandService extends ChangeNotifier {
     lastError = status['lastError'] as String?;
     lastMessageAt = (status['lastMessageAt'] as num?)?.toInt();
     lastPongAt = (status['lastPongAt'] as num?)?.toInt();
+    lastReminderAt = (status['lastReminderAt'] as num?)?.toInt();
+    lastReminder = status['lastReminder'] as String?;
     exactAlarms = status['exactAlarms'] as bool? ?? true;
     final list = status['messages'];
     if (list is List) {

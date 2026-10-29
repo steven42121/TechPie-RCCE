@@ -156,6 +156,19 @@ class _BandSettingsPageState extends State<BandSettingsPage>
                   onTap: () =>
                       unawaited(_band.requestExactAlarmPermission()),
                 ),
+              if (_band.reminderEnabled)
+                ListTile(
+                  leading: Icon(
+                    (_band.lastReminder?.startsWith('已送达') ?? false)
+                        ? Icons.check_circle_outline
+                        : Icons.error_outline,
+                    color: (_band.lastReminder?.startsWith('已送达') ?? false)
+                        ? Colors.green
+                        : Colors.orange,
+                  ),
+                  title: const Text('上次提醒投递'),
+                  subtitle: Text(_lastReminderText()),
+                ),
               ListTile(
                 leading: const Icon(Icons.notification_add_outlined),
                 title: const Text('发送测试通知'),
@@ -261,6 +274,17 @@ class _BandSettingsPageState extends State<BandSettingsPage>
     if (elapsed.inSeconds < 60) return '${elapsed.inSeconds} 秒前';
     if (elapsed.inMinutes < 60) return '${elapsed.inMinutes} 分钟前';
     return '${elapsed.inHours} 小时前';
+  }
+
+  /// 上一次上课提醒有没有推到手腕：手机响、手环静时，这一行是判断依据。
+  String _lastReminderText() {
+    final at = _band.lastReminderAt;
+    final text = _band.lastReminder;
+    if (at == null || text == null) return '还没有触发过提醒';
+    final time = DateTime.fromMillisecondsSinceEpoch(at);
+    final hh = time.hour.toString().padLeft(2, '0');
+    final mm = time.minute.toString().padLeft(2, '0');
+    return '$hh:$mm · $text';
   }
 
   Future<void> _pickLeadMinutes() async {

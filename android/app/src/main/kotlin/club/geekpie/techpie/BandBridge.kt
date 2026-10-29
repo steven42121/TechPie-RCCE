@@ -282,6 +282,8 @@ class BandBridge(
         nodeName = node.name?.trim()
         // 广播进程冷启动时靠它直接推提醒，不必重新等待设备发现。
         BandReminders.rememberNode(context, node.id)
+        // 上次提醒时手环不在线、没送达的那条，在这里补发（过期的会自动丢弃）。
+        BandReminders.flushPending(context, node.id)
         Log.i(TAG, "node ${node.id} ($nodeName)")
         Wearable.getAuthApi(context).checkPermission(node.id, Permission.DEVICE_MANAGER)
             .addOnSuccessListener { granted ->
@@ -462,6 +464,8 @@ class BandBridge(
         "lastMessageAt" to lastMessageAt,
         "lastPongAt" to lastPongAt,
         "exactAlarms" to exactAlarmsAllowed(),
+        "lastReminderAt" to BandReminders.lastResultAt(context),
+        "lastReminder" to BandReminders.lastResultText(context),
         "messages" to synchronized(recentMessages) { recentMessages.toList() },
     )
 
