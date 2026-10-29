@@ -1479,8 +1479,8 @@ const double _kPeriodHeight = 100.0;
 /// The period gutter and the narrowest a day column may get. Below the minimum
 /// a course name cannot hold two Chinese characters, so the week scrolls
 /// sideways instead of shrinking further.
-const double _kDayLabelWidth = 42.0;
-const double _kMinDayColumnWidth = 56.0;
+const double _kDayLabelWidth = 40.0;
+const double _kMinDayColumnWidth = 64.0;
 
 /// Scrolls the header and the grid of one week together, so a wide week keeps
 /// its columns aligned while moving as one.
