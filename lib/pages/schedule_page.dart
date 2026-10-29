@@ -861,28 +861,60 @@ class _SchedulePageState extends State<SchedulePage> {
             onEditCustomCourse: _editCustomCourse,
           );
 
-    return Column(
-      children: [
-        _DayHeader(
-          weekStart: _weekStartForWeek(week),
-          today: today,
-          visibleDays: visibleDays,
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: animated
-              ? AnimatedSwitcher(
-                  duration: appAnimationDuration(
-                    context,
-                    const Duration(milliseconds: 300),
-                  ),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
-                  child: content,
-                )
-              : content,
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // A column narrower than this cannot hold two Chinese characters at a
+        // legible size. When the visible days need more room than the screen
+        // has, the whole week scrolls sideways together — header and grid keep
+        // their columns aligned because both live inside the same width.
+        final count = visibleDays.length;
+        final minWidth = _kDayLabelWidth + 1 + _kMinDayColumnWidth * count;
+        final totalWidth =
+            constraints.maxWidth > minWidth ? constraints.maxWidth : minWidth;
+        final columnWidth = (totalWidth - _kDayLabelWidth - 1) / count;
+
+        // Start on today instead of Monday: with seven columns the interesting
+        // one is usually off-screen to the right.
+        final todayIndex = visibleDays.indexOf(today.weekday);
+        final viewport = constraints.maxWidth;
+        var initialOffset = 0.0;
+        if (totalWidth > viewport && todayIndex >= 0) {
+          final center =
+              _kDayLabelWidth + 1 + columnWidth * (todayIndex + 0.5);
+          initialOffset = (center - viewport / 2)
+              .clamp(0.0, totalWidth - viewport)
+              .toDouble();
+        }
+
+        return _ScrollableWeek(
+          key: ValueKey<String>('week-scroll-$week'),
+          width: totalWidth,
+          initialOffset: initialOffset,
+          child: Column(
+            children: [
+              _DayHeader(
+                weekStart: _weekStartForWeek(week),
+                today: today,
+                visibleDays: visibleDays,
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: animated
+                    ? AnimatedSwitcher(
+                        duration: appAnimationDuration(
+                          context,
+                          const Duration(milliseconds: 300),
+                        ),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        child: content,
+                      )
+                    : content,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1243,7 +1275,7 @@ class _DayHeader extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 48,
+            width: _kDayLabelWidth,
             child: Center(
               child: AnimatedSwitcher(
                 duration: appAnimationDuration(
@@ -1368,7 +1400,7 @@ class _TimetableGrid extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
-              width: 48,
+              width: _kDayLabelWidth,
               child: Column(
                 children: [
                   for (final period in periods) _PeriodLabel(period: period),
@@ -1443,6 +1475,50 @@ class _PeriodLabel extends StatelessWidget {
 }
 
 const double _kPeriodHeight = 100.0;
+
+/// The period gutter and the narrowest a day column may get. Below the minimum
+/// a course name cannot hold two Chinese characters, so the week scrolls
+/// sideways instead of shrinking further.
+const double _kDayLabelWidth = 42.0;
+const double _kMinDayColumnWidth = 56.0;
+
+/// Scrolls the header and the grid of one week together, so a wide week keeps
+/// its columns aligned while moving as one.
+class _ScrollableWeek extends StatefulWidget {
+  final double width;
+  final double initialOffset;
+  final Widget child;
+
+  const _ScrollableWeek({
+    super.key,
+    required this.width,
+    required this.initialOffset,
+    required this.child,
+  });
+
+  @override
+  State<_ScrollableWeek> createState() => _ScrollableWeekState();
+}
+
+class _ScrollableWeekState extends State<_ScrollableWeek> {
+  late final ScrollController _controller =
+      ScrollController(initialScrollOffset: widget.initialOffset);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      controller: _controller,
+      scrollDirection: Axis.horizontal,
+      child: SizedBox(width: widget.width, child: widget.child),
+    );
+  }
+}
 
 class _DayColumn extends StatelessWidget {
   final int dayOfWeek;

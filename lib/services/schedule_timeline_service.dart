@@ -43,13 +43,17 @@ class ScheduleTimeline {
   }
 
   /// past / ongoing / soon（15 分钟内开课）/ upcoming，与首页判定一致。
+  ///
+  /// [end] is exclusive: at the minute a class ends it is over, the same way
+  /// [buildIslandFrame] reads it. An inclusive bound left the class on screen
+  /// as "上课中" for one more minute on every surface.
   static String courseState(Course course, DateTime now) {
     final nowMinutes = now.hour * 60 + now.minute;
     final start = parseClockMinutes(course.startTime);
     final end = parseClockMinutes(course.endTime);
     if (start == null || end == null) return 'upcoming';
-    if (nowMinutes > end) return 'past';
-    if (nowMinutes >= start && nowMinutes <= end) return 'ongoing';
+    if (nowMinutes >= end) return 'past';
+    if (nowMinutes >= start) return 'ongoing';
     final diff = start - nowMinutes;
     return diff > 0 && diff <= 15 ? 'soon' : 'upcoming';
   }
