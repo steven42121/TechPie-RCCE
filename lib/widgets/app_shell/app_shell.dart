@@ -111,7 +111,7 @@ class _AppShellState extends State<AppShell> {
     _onDestinationSelected(2);
   }
 
-  /// Pushes the entry the host asked for into the destination the user is on.
+  /// Pushes the entry onto the visible navigation stack.
   void _showPendingEcardEntry() {
     final entry = appShellPendingEcardEntry.value;
     if (entry == null || !mounted) return;
@@ -126,6 +126,8 @@ class _AppShellState extends State<AppShell> {
     unawaited(
       pushAdaptivePage<void>(
         nested ?? context,
+        // Login and playback pages can cover the entire tab shell.
+        rootNavigator: !ModalRoute.of(context)!.isCurrent,
         builder: (_) => CampusCardPage(entry: entry),
       ),
     );
@@ -258,7 +260,10 @@ class _AppDestinationSwitcherState extends State<AppDestinationSwitcher> {
                 offstage: index != widget.selectedIndex,
                 child: TickerMode(
                   enabled: index == widget.selectedIndex,
-                  child: widget.pages[index],
+                  child: HeroMode(
+                    enabled: index == widget.selectedIndex,
+                    child: widget.pages[index],
+                  ),
                 ),
               ),
         ],
