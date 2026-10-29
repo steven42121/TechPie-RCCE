@@ -188,7 +188,7 @@ class _SchedulePageState extends State<SchedulePage> {
   void _rebuildCourses() {
     if (!mounted) return;
     setState(() {
-      final preserveWeek = isLinux() &&
+      final preserveWeek = isDesktop() &&
           _hasBuiltCourses &&
           _displayedSemesterId == _schedule.selectedSemesterId;
       _currentWeek = (preserveWeek ? _currentWeek : _schedule.currentWeek())
@@ -668,7 +668,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 ],
               ),
               actions: [
-                if (isLinux())
+                if (isDesktop())
                   PageRefreshButton(
                     onRefresh: _refresh,
                     enabled: auth.isLoggedIn && tpAuth.hasCpdailyBinding,
@@ -856,7 +856,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 Text(
                   switch (state) {
                     EmptyWeekState.loading => '正在获取课表…',
-                    EmptyWeekState.failed => isLinux()
+                    EmptyWeekState.failed => isDesktop()
                         ? '课表加载失败，点击右上角刷新重试'
                         : '课表加载失败，下拉刷新重试',
                     EmptyWeekState.noClasses => '本周没有课程',
