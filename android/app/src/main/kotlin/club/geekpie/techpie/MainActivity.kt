@@ -63,6 +63,33 @@ class MainActivity : FlutterActivity() {
         spendingAlerts = SpendingNotificationBridge(this, messenger, activity = this)
         wearEngine = WearEngineBridge(this, messenger)
 
+        // Hand an ICS document to the system share sheet so a class-schedule
+        // app that subscribes to text/calendar (Xiaoai's timetable among them)
+        // can import it without us holding any of its credentials.
+        MethodChannel(messenger, SHARE_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "shareCalendar" -> {
+                    val text = call.argument<String>("text").orEmpty()
+                    if (text.isBlank()) {
+                        result.error("empty", "没有可分享的课表", null)
+                        return@setMethodCallHandler
+                    }
+                    val subject = call.argument<String>("subject") ?: "课程表"
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/calendar"
+                        putExtra(Intent.EXTRA_SUBJECT, subject)
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    startActivity(
+                        Intent.createChooser(send, "导入课程表")
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             CALENDAR_IMPORTER_CHANNEL,
@@ -432,6 +459,7 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val CALENDAR_IMPORTER_CHANNEL = "techpie/calendar_importer"
+        const val SHARE_CHANNEL = "techpie/share"
         const val ECARD_BIND_CHANNEL = "techpie/ecard_bind"
         const val REQUEST_CALENDAR_PERMISSIONS = 48291
         const val REQUEST_ISLAND_NOTIFICATION = 48292

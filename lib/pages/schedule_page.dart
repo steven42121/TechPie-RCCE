@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -57,6 +58,18 @@ EmptyWeekState emptyWeekStateOf({
   if (hasError) return EmptyWeekState.failed;
   if (!hasSemester) return EmptyWeekState.loading;
   return EmptyWeekState.noClasses;
+}
+
+/// How many rows a week's table needs: up to the last period any of [courses]
+/// uses, capped at [periodCount]. A fixed 13-period table put a screen of empty
+/// grid under the last class, which is what made the timetable look endless.
+int timetableRowCount(Iterable<Course> courses, int periodCount) {
+  var lastUsed = 0.0;
+  for (final course in courses) {
+    if (course.gridEnd > lastUsed) lastUsed = course.gridEnd;
+  }
+  if (lastUsed <= 0) return periodCount;
+  return lastUsed.ceil().clamp(1, periodCount);
 }
 
 class SchedulePage extends StatefulWidget {
@@ -704,6 +717,11 @@ class _SchedulePageState extends State<SchedulePage> {
                         enabled: _canAddCustomCourses,
                         child: const Text('添加课程'),
                       ),
+                      if (isAndroid())
+                        const PopupMenuItem(
+                          value: 'xiaoai',
+                          child: Text('导入小爱同学课程表'),
+                        ),
                     ],
                   ),
               ],
@@ -937,7 +955,121 @@ class _SchedulePageState extends State<SchedulePage> {
         if (_canAddCustomCourses) _addCustomCourse();
       case 'exportCalendar':
         _startExportCalendar();
+      case 'xiaoai':
+        _openXiaoaiImport();
     }
+  }
+
+  /// 小爱同学课程表没有公开的写入接口，这里给两条能落地的路径：把 ICS 交给
+  /// 系统分享面板（小爱若订阅 text/calendar 就能直接接），或复制成课表文本
+  /// 供手动粘贴。
+  void _openXiaoaiImport() {
+    if (_schedule.courseTable == null || _schedule.termBegin == null) {
+      showAdaptiveFeedback(
+        context: context,
+        message: '课表尚未加载',
+        style: AdaptiveFeedbackStyle.info,
+      );
+      return;
+    }
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.share_outlined),
+                title: const Text('分享课表文件（ICS）'),
+                subtitle: const Text('在分享面板里选择小爱同学或其他课程表应用'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(_shareCalendarIcs());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.copy_all_outlined),
+                title: const Text('复制课程表文本'),
+                subtitle: const Text('粘贴到小爱同学课程表的手动导入'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(_copyScheduleText());
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _shareCalendarIcs() async {
+    final table = _schedule.courseTable;
+    final termBegin = _schedule.termBegin;
+    if (table == null || termBegin == null) return;
+    final ics = _icsExport.buildCalendar(
+      table: table,
+      termBegin: termBegin,
+      calendarName: _defaultCalendarName,
+      customCourses: _schedule.customCourses,
+      exams: _semesterExams,
+    );
+    try {
+      await const MethodChannel('techpie/share').invokeMethod<bool>(
+        'shareCalendar',
+        {'text': ics, 'subject': _defaultCalendarName},
+      );
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      showAdaptiveFeedback(
+        context: context,
+        message: '分享失败：${error.message ?? '未知错误'}',
+        style: AdaptiveFeedbackStyle.error,
+      );
+    } on MissingPluginException {
+      if (!mounted) return;
+      showAdaptiveFeedback(
+        context: context,
+        message: '当前平台不支持分享日历文件',
+        style: AdaptiveFeedbackStyle.info,
+      );
+    }
+  }
+
+  Future<void> _copyScheduleText() async {
+    final text = _scheduleTextForXiaoai();
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    showAdaptiveFeedback(
+      context: context,
+      message: '课程表文本已复制',
+      style: AdaptiveFeedbackStyle.success,
+    );
+  }
+
+  String _scheduleTextForXiaoai() {
+    const labels = ['一', '二', '三', '四', '五', '六', '日'];
+    final courses = [..._coursesForWeek(_currentWeek)]
+      ..sort((a, b) {
+        final byDay = a.dayOfWeek.compareTo(b.dayOfWeek);
+        return byDay != 0 ? byDay : a.startTime.compareTo(b.startTime);
+      });
+    final lines = <String>[
+      _semesterLabel.isEmpty ? '课程表' : _semesterLabel,
+    ];
+    for (final course in courses) {
+      final location = course.location.isEmpty ? '' : ' ${course.location}';
+      lines.add(
+        '周${labels[course.dayOfWeek - 1]} '
+        '${course.startTime}-${course.endTime} '
+        '${course.name}$location',
+      );
+    }
+    return lines.join('\n');
   }
 
   /// Adding needs a semester and a period table, so not before a fetch.
@@ -1100,6 +1232,19 @@ class _SchedulePageState extends State<SchedulePage> {
                           }
                         : null,
                   ),
+                  const Divider(height: 1),
+                  if (isAndroid())
+                    DesktopMenuRow(
+                      leading: const Icon(Icons.share_outlined, size: 20),
+                      title: Text(
+                        '导入小爱同学课程表',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      onTap: () {
+                        close();
+                        _openXiaoaiImport();
+                      },
+                    ),
                   const Divider(height: 1),
                   DesktopMenuRow(
                     leading: _exportingCalendar
@@ -1390,6 +1535,12 @@ class _TimetableGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final visibleCourses = courses
+        .where((course) => visibleDays.contains(course.dayOfWeek))
+        .toList(growable: false);
+    final rows = periods
+        .take(timetableRowCount(visibleCourses, periods.length))
+        .toList(growable: false);
 
     return SingleChildScrollView(
       padding: EdgeInsets.only(
@@ -1403,7 +1554,7 @@ class _TimetableGrid extends StatelessWidget {
               width: _kDayLabelWidth,
               child: Column(
                 children: [
-                  for (final period in periods) _PeriodLabel(period: period),
+                  for (final period in rows) _PeriodLabel(period: period),
                 ],
               ),
             ),
@@ -1412,8 +1563,10 @@ class _TimetableGrid extends StatelessWidget {
               Expanded(
                 child: _DayColumn(
                   dayOfWeek: visibleDays[i],
-                  courses: courses.where((c) => c.dayOfWeek == visibleDays[i]).toList(),
-                  periods: periods,
+                  courses: visibleCourses
+                      .where((c) => c.dayOfWeek == visibleDays[i])
+                      .toList(),
+                  periods: rows,
                   isToday: _isSameDay(
                     weekStart.add(Duration(days: visibleDays[i] - 1)),
                     today,
@@ -1474,13 +1627,13 @@ class _PeriodLabel extends StatelessWidget {
   }
 }
 
-const double _kPeriodHeight = 100.0;
+const double _kPeriodHeight = 72.0;
 
 /// The period gutter and the narrowest a day column may get. Below the minimum
 /// a course name cannot hold two Chinese characters, so the week scrolls
 /// sideways instead of shrinking further.
 const double _kDayLabelWidth = 40.0;
-const double _kMinDayColumnWidth = 64.0;
+const double _kMinDayColumnWidth = 72.0;
 
 /// Scrolls the header and the grid of one week together, so a wide week keeps
 /// its columns aligned while moving as one.
@@ -1624,20 +1777,22 @@ class _CourseBlock extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final maxH = constraints.maxHeight - 8; // account for padding
-              // Each text line is ~14px tall (12px font, 1.2 leading, 2px gap).
-              // Budget the block from the top down: name first, then time, then
-              // teachers, then location — and drop from the bottom up when the
-              // block is too short for all of it.
-              final lineH = 14.0;
-              final nameLines = (maxH / lineH).floor().clamp(1, 20);
+              // Budget from the top down in real pixels: the name claims at
+              // most four lines, then time, teachers and location each get a
+              // line only if what is left can hold it. Subtracting the name's
+              // own height is what keeps a short block from overflowing.
+              const nameLineH = 14.4;
+              const smallLineH = 13.2;
+              final nameLines = maxH >= 100 ? 4 : (maxH >= 72 ? 3 : 2);
+              var remaining = maxH - nameLines * nameLineH;
+              final showTime = course.usesCustomTime && remaining >= smallLineH;
+              if (showTime) remaining -= smallLineH;
+              final showTeachers = hasTeachers && remaining >= smallLineH;
+              if (showTeachers) remaining -= smallLineH;
+              final showLocation =
+                  course.location.isNotEmpty && remaining >= smallLineH;
               final teacherLines = 2;
               final locationLines = 2;
-              var remaining = maxH;
-              final showTime = course.usesCustomTime && remaining >= lineH;
-              if (showTime) remaining -= lineH;
-              final showTeachers = hasTeachers && remaining >= lineH;
-              if (showTeachers) remaining -= lineH;
-              final showLocation = course.location.isNotEmpty && remaining >= lineH;
 
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
