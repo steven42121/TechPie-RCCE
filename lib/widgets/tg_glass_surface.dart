@@ -17,6 +17,7 @@ class TgGlassSurface extends StatelessWidget {
     required this.child,
     this.height,
     this.padding = EdgeInsets.zero,
+    this.card = false,
   });
 
   final double radius;
@@ -24,12 +25,18 @@ class TgGlassSurface extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final Widget child;
 
+  /// Content cards follow [GlassTheme.cardsOf] — glass only in
+  /// `Full Liquid Glass`, an opaque surface otherwise — and sample the backdrop
+  /// without the shared group snapshot, which is what kept their colour
+  /// drifting while the page scrolled.
+  final bool card;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final brightness = theme.brightness;
-    final glass = GlassTheme.of(context);
+    final glass = card ? GlassTheme.cardsOf(context) : GlassTheme.of(context);
     final borderRadius = BorderRadius.circular(radius);
 
     // Same target tone as the bottom bar: light glass reads as the lowest
@@ -75,6 +82,7 @@ class TgGlassSurface extends StatelessWidget {
         child: _GlassComposite(
           glass: glass,
           brightness: brightness,
+          grouped: !card,
           child: CustomPaint(
             foregroundPainter: _GlassStrokePainter(
               top: strokeTop,
@@ -108,22 +116,24 @@ class _GlassComposite extends StatelessWidget {
     required this.glass,
     required this.brightness,
     required this.child,
+    this.grouped = true,
   });
 
   final GlassTheme glass;
   final Brightness brightness;
   final Widget child;
+  final bool grouped;
 
   @override
   Widget build(BuildContext context) {
     if (!glass.translucent) return child;
 
-    // Only non-overlapping home cards share a group; the floating bar samples
-    // separately because content can scroll behind it.
-    final blurred = BackdropFilter.grouped(
-      filter: TgGlass.backdrop(),
-      child: child,
-    );
+    // The floating bar shares one backdrop snapshot; a card inside a scrolling
+    // list must not, or the blur it reuses is from wherever the group was
+    // captured and the surface colour drifts as the page moves.
+    final blurred = grouped
+        ? BackdropFilter.grouped(filter: TgGlass.backdrop(), child: child)
+        : BackdropFilter(filter: TgGlass.backdrop(), child: child);
     if (!glass.sheen) return blurred;
 
     return Stack(
@@ -200,6 +210,7 @@ class TgGlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TgGlassSurface(
         radius: radius,
+        card: true,
         child: Material(type: MaterialType.transparency, child: child),
       );
 }

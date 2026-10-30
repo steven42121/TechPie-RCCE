@@ -28,7 +28,8 @@ enum AppColorScheme {
 enum AppGlassMode {
   classic('Classic', Icons.blur_off_outlined),
   frosted('Frosted Glass', Icons.blur_on_outlined),
-  liquid('Liquid Glass', Icons.water_drop_outlined);
+  liquid('Liquid Glass', Icons.water_drop_outlined),
+  fullLiquid('Full Liquid Glass', Icons.water_drop);
 
   const AppGlassMode(this.label, this.icon);
   final String label;
@@ -56,12 +57,24 @@ class GlassTheme extends ThemeExtension<GlassTheme> {
   }
 
   bool get translucent => mode != AppGlassMode.classic;
-  bool get sheen => mode == AppGlassMode.liquid;
+  bool get sheen =>
+      mode == AppGlassMode.liquid || mode == AppGlassMode.fullLiquid;
 
   /// Fill alpha for the inverse src-over solve. Frosted keeps the studied
   /// 0.76; liquid glass is deliberately lighter so content shows through the
-  /// blur and the three modes never collapse into the same flat tone.
-  double get overlayAlpha => mode == AppGlassMode.liquid ? 0.52 : 0.76;
+  /// blur and the modes never collapse into the same flat tone.
+  double get overlayAlpha => mode == AppGlassMode.classic ? 0.76 : 0.52;
+
+  /// The recipe for content cards (home page). Only [AppGlassMode.fullLiquid]
+  /// puts glass on them: the plain liquid mode is the chrome treatment, and a
+  /// card that blurs scrolling content behind it shifts colour as the page
+  /// moves. Everything else draws an opaque surface that stays put.
+  static GlassTheme cardsOf(BuildContext context) {
+    final resolved = of(context);
+    return resolved.mode == AppGlassMode.fullLiquid
+        ? resolved
+        : const GlassTheme(AppGlassMode.classic);
+  }
 
   @override
   GlassTheme copyWith({AppGlassMode? mode}) => GlassTheme(mode ?? this.mode);

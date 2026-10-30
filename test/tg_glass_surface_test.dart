@@ -39,4 +39,31 @@ void main() {
     expect(tester.getTopLeft(stroke.first), tester.getTopLeft(surface));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a card only turns to glass in Full Liquid Glass', (tester) async {
+    Future<GlassTheme> cardsFor(AppGlassMode mode) async {
+      GlassTheme? resolved;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(extensions: [GlassTheme(mode)]),
+          // AnimatedTheme would hand back the previous mode at t = 0.
+          themeAnimationDuration: Duration.zero,
+          home: Builder(
+            builder: (context) {
+              resolved = GlassTheme.cardsOf(context);
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      return resolved!;
+    }
+
+    expect((await cardsFor(AppGlassMode.liquid)).mode, AppGlassMode.classic);
+    expect((await cardsFor(AppGlassMode.frosted)).mode, AppGlassMode.classic);
+    expect(
+      (await cardsFor(AppGlassMode.fullLiquid)).mode,
+      AppGlassMode.fullLiquid,
+    );
+  });
 }

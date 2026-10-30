@@ -255,8 +255,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       appBar: useIosChrome
           ? const IosNativeNavigationBar(title: 'Home', largeTitleMode: true)
           : const BlurredAppBar(title: Text('Home')),
-      body: BackdropGroup(
-        child: ListView(
+      body: ListView(
         padding: EdgeInsets.fromLTRB(
           16,
           topInset,
@@ -299,7 +298,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           _buildPendingAssignments(theme),
           if (isDebug) ...[const SizedBox(height: 16), _buildDebugPanel(theme)],
         ],
-        ),
       ),
     );
   }
