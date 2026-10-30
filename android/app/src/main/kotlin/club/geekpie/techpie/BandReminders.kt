@@ -18,7 +18,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import club.geekpie.techpie.island.IslandAlarms
 import com.xiaomi.xms.wearable.Wearable
-import com.xiaomi.xms.wearable.auth.Permission
 import com.xiaomi.xms.wearable.service.OnServiceConnectionListener
 import org.json.JSONArray
 import org.json.JSONObject
@@ -206,41 +205,71 @@ object BandReminders {
         }
     }
 
-    /** 投递前确认手环侧通知权限：只给设备管理权时 sendNotify 会失败。 */
-    fun hasNotifyPermission(context: Context, nodeId: String, onDone: (Boolean) -> Unit) {
-        Wearable.getAuthApi(context).checkPermission(nodeId, Permission.NOTIFY)
-            .addOnSuccessListener(onDone)
-            .addOnFailureListener { error ->
-                Log.w("BandReminders", "checkPermission failed: ${error.message}")
-                onDone(false)
-            }
+    // 投递前不再预检 NOTIFY 权限：冷进程里穿戴服务刚绑定时 checkPermission
+    // 可能返回过期的"未授权"，把本来能送达的提醒拦在发送之前（手动测试通知
+    // 不走这道门，所以一直正常）。直接发送，让返回的 Status 说出真实原因。
+
+    /** Status.code 的可读名称（取值来自 xms-wearable-lib 1.4 的 Status 常量）。 */
+    fun statusName(code: Int): String = when (code) {
+        0 -> "成功"
+        -1 -> "已取消"
+        -2 -> "对端处理超时"
+        -3 -> "被中断"
+        -4 -> "手环连接已断开"
+        -5 -> "小米运动健康未安装"
+        -6 -> "签名校验失败"
+        -7 -> "手环通知权限未开启"
+        -8 -> "手环快应用未安装"
+        else -> "status $code"
     }
 
-    /** 一次投递失败往往只是连接抖动，重试一次能把"手环没反应"变成送达。 */
+    /**
+     * 一次投递失败往往只是连接抖动，重试一次能把"手环没反应"变成送达。
+     * 注意 sendNotify 的 Task 成功只代表 IPC 完成，手环是否接受要看 Status：
+     * 旧实现把任何 Status 都当送达，于是权限被拒、快应用缺失、对端超时
+     * 全部被记成"已送达"，设置页永远查不出原因。
+     */
     fun send(
         context: Context,
         nodeId: String,
         title: String,
         body: String,
         attempts: Int = 2,
-        onDone: (Boolean) -> Unit,
+        onDone: (Boolean, String) -> Unit,
     ) {
         Wearable.getNotifyApi(context).sendNotify(nodeId, title, body)
-            .addOnSuccessListener {
-                Log.i("BandReminders", "band reminder delivered to $nodeId")
-                onDone(true)
+            .addOnSuccessListener { status ->
+                if (status.isSuccess) {
+                    Log.i("BandReminders", "band reminder delivered to $nodeId")
+                    onDone(true, "已推送到手环")
+                } else {
+                    Log.w("BandReminders", "sendNotify to $nodeId status ${status.code}")
+                    retryOrFail(context, nodeId, title, body, attempts, "推送被手环拒绝：${statusName(status.code)}", onDone)
+                }
             }
             .addOnFailureListener { error ->
                 Log.w("BandReminders", "sendNotify to $nodeId failed: ${error.message}")
-                if (attempts > 1) {
-                    mainHandler.postDelayed(
-                        { send(context, nodeId, title, body, attempts - 1, onDone) },
-                        SEND_RETRY_MS,
-                    )
-                } else {
-                    onDone(false)
-                }
+                retryOrFail(context, nodeId, title, body, attempts, "推送失败：${error.message}", onDone)
             }
+    }
+
+    private fun retryOrFail(
+        context: Context,
+        nodeId: String,
+        title: String,
+        body: String,
+        attempts: Int,
+        detail: String,
+        onDone: (Boolean, String) -> Unit,
+    ) {
+        if (attempts > 1) {
+            mainHandler.postDelayed(
+                { send(context, nodeId, title, body, attempts - 1, onDone) },
+                SEND_RETRY_MS,
+            )
+        } else {
+            onDone(false, detail)
+        }
     }
 
     /**
@@ -277,7 +306,7 @@ object BandReminders {
                 continue
             }
             if (now - item.atMillis > PENDING_WINDOW_MS) continue
-            send(context, nodeId, item.title, item.body) { delivered ->
+            send(context, nodeId, item.title, item.body) { delivered, _ ->
                 if (!delivered) enqueuePending(context, item)
             }
         }
@@ -340,6 +369,13 @@ class BandReminderReceiver : BroadcastReceiver() {
                 runCatching { pendingResult.finish() }
             }
         }
+        // 看门狗：穿戴服务挂起时 checkPermission/sendNotify 的 Task 可能永不回调，
+        // 旧实现就这样死在广播里，不留任何记录。预留 500ms 收尾，保证在系统
+        // 杀掉进程前把"超时"写进诊断并留副本补发。
+        Handler(Looper.getMainLooper()).postDelayed(
+            { finish(false, "投递超时：穿戴服务无响应") },
+            TIMEOUT_GUARD_MS,
+        )
 
         BandReminders.whenServiceReady(appContext, BandReminders.SERVICE_WAIT_MS) {
             val known = BandReminders.knownNode(appContext)
@@ -373,7 +409,7 @@ class BandReminderReceiver : BroadcastReceiver() {
         }
     }
 
-    /** 校验通知权限后再发；权限缺失是最常见的"手机响、手环静"原因。 */
+    /** 直接投递（与手动测试通知同一路径）；失败原因由 Status 透传到诊断。 */
     private fun deliver(
         context: Context,
         nodeId: String,
@@ -381,16 +417,7 @@ class BandReminderReceiver : BroadcastReceiver() {
         body: String,
         onDone: (Boolean, String) -> Unit,
     ) {
-        BandReminders.hasNotifyPermission(context, nodeId) { granted ->
-            if (!granted) {
-                Log.w(TAG, "notify permission missing for $nodeId")
-                onDone(false, "手环通知权限未开启")
-            } else {
-                BandReminders.send(context, nodeId, title, body) { delivered ->
-                    onDone(delivered, if (delivered) "已推送到手环" else "推送被手环拒绝")
-                }
-            }
-        }
+        BandReminders.send(context, nodeId, title, body, onDone = onDone)
     }
 
     /** 冷启动时 SDK 可能还没绑定好，轮询几次再判定"没有设备"。 */
@@ -459,6 +486,9 @@ class BandReminderReceiver : BroadcastReceiver() {
         /** 服务 3.5s + 发现 4×0.9s + 重试投递，留在广播的 10s 预算内。 */
         const val ATTEMPTS = 4
         const val DISCOVERY_INTERVAL_MS = 900L
+
+        /** 看门狗：goAsync 预算 10s，留 500ms 给记录与 finish。 */
+        const val TIMEOUT_GUARD_MS = 9500L
     }
 }
 

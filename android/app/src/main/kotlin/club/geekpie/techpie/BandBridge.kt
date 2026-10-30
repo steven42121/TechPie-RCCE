@@ -387,10 +387,17 @@ class BandBridge(
         val title = call.argument<String>("title") ?: "TechPie"
         val message = call.argument<String>("message") ?: ""
         Wearable.getNotifyApi(context).sendNotify(id, title, message)
-            .addOnSuccessListener {
-                lastError = null
-                emitState()
-                result.success(true)
+            .addOnSuccessListener { status ->
+                // Task 成功只代表 IPC 完成，手环是否接受要看 Status。
+                if (status.isSuccess) {
+                    lastError = null
+                    emitState()
+                    result.success(true)
+                } else {
+                    lastError = "手环拒绝了通知（status ${status.code}）"
+                    emitState()
+                    result.error("notify_failed", lastError, null)
+                }
             }
             .addOnFailureListener { error ->
                 Log.w(TAG, "sendNotify failed", error)
