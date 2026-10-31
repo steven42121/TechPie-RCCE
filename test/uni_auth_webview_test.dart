@@ -1,10 +1,10 @@
 import 'package:casdoor_flutter_sdk/casdoor_flutter_sdk.dart';
-import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/pages/uni_auth_webview_page.dart';
 import 'package:techpie/services/uni_auth_service.dart';
+import 'package:techpie/widgets/ios/ios_native_navigation_bar.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
 void main() {
@@ -47,7 +47,9 @@ void main() {
     expect(url.queryParameters['redirect_uri'], 'techpie://auth-callback');
     expect(url.queryParameters['code_challenge'], isNotEmpty);
     expect(service.loading, isTrue);
-    tester.widgetList<CNButton>(find.byType(CNButton)).single.onPressed!();
+    tester
+        .widget<IosNativeNavigationBar>(find.byType(IosNativeNavigationBar))
+        .onItemPressed!('back');
     await tester.pumpAndSettle();
     expect(error, isA<CasdoorAuthCancelledException>());
     expect(service.loading, isFalse);

@@ -34,7 +34,6 @@ import '../widgets/update_dialogs.dart';
 import 'debug_log_page.dart';
 import 'debug_webview_page.dart';
 import 'developer_lab_page.dart';
-import '../widgets/uni_auth_login.dart';
 import 'glance_settings_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
