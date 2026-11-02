@@ -545,6 +545,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final scheme = theme.colorScheme;
     final dueColor = _dueColor(a.due, now, scheme);
     final dueLabel = _dueLabel(a.due, now);
+    final subtitle = a is ExamAssignment ? a.location.trim() : a.course;
 
     return InkWell(
       onTap: () => unawaited(_openAssignmentUrl(a)),
@@ -564,15 +565,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    a.course,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

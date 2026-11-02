@@ -954,6 +954,10 @@ class _AssignmentCard extends StatelessWidget {
     final displayDue = isLateWindow ? lateDue : assignment.due;
     final dueLabel = isLateWindow ? 'Late Due: ' : 'Due: ';
     final dueString = formatter.format(displayDue);
+    final subtitle = switch (assignment) {
+      ExamAssignment(:final location) => location.trim(),
+      _ => assignment.course,
+    };
 
     Color statusColor() {
       if (completed) return Colors.green;
@@ -1065,13 +1069,15 @@ class _AssignmentCard extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                assignment.course,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              ),
+              ],
               const SizedBox(height: 16),
               Row(
                 children: [
