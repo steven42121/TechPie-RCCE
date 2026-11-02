@@ -155,6 +155,7 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_test:
     sdk: flutter
+  webview_flutter_platform_interface: ^2.13.1
 
 flutter_launcher_icons:
   image_path: "assets/icon/icon.png"
@@ -192,7 +193,13 @@ flutter:
   assets:
     - assets/campus_card/audio/
     - assets/campus_card/data/
-    - assets/campus_card/images/
+    - assets/campus_card/images/card-full.png
+    - assets/campus_card/images/card-top.png
+    - assets/campus_card/images/card-bottom.png
+    - assets/campus_card/images/network-online.png
+    - assets/campus_card/images/network-offline.png
+    - assets/campus_card/images/network-warning.png
+    - assets/campus_card/images/widget-background.png
 
   fonts:
     # Roboto Medium, the exact face Telegram Android renders its "bold" UI

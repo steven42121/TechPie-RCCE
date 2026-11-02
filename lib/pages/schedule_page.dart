@@ -30,9 +30,10 @@ import '../widgets/course_detail_panel.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/page_refresh.dart';
 import '../widgets/schedule_picker_sheet.dart';
+import '../widgets/uni_auth_login.dart';
 import 'custom_course_editor_page.dart';
-import 'login_page.dart';
 import 'third_party_accounts_page.dart';
 
 /// What an empty week actually is, given what the timetable knows about itself.
@@ -44,7 +45,7 @@ enum EmptyWeekState {
   /// Nothing fetched yet — a fresh login, or a binding whose fetch is in flight.
   loading,
 
-  /// A fetch ran and failed. Pull-to-refresh is the way out.
+  /// A fetch ran and failed. Refreshing lets the user retry.
   failed,
 
   /// The timetable is in hand, and this week is genuinely empty.
@@ -88,6 +89,8 @@ class _SchedulePageState extends State<SchedulePage> {
   int _currentWeek = 1;
   bool _initialized = false;
   bool _exportingCalendar = false;
+  bool _hasBuiltCourses = false;
+  String? _displayedSemesterId;
 
   // Settings
   bool _showSaturday = true;
@@ -185,7 +188,14 @@ class _SchedulePageState extends State<SchedulePage> {
   void _rebuildCourses() {
     if (!mounted) return;
     setState(() {
-      _currentWeek = _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
+      final preserveWeek = isDesktop() &&
+          _hasBuiltCourses &&
+          _displayedSemesterId == _schedule.selectedSemesterId;
+      _currentWeek = (preserveWeek ? _currentWeek : _schedule.currentWeek())
+          .clamp(1, _schedule.totalWeeks)
+          .toInt();
+      _hasBuiltCourses = true;
+      _displayedSemesterId = _schedule.selectedSemesterId;
       final table = _schedule.courseTable;
       if (table != null && table.periods.isNotEmpty) {
         _periods = table.periods.map((p) => p.toPeriod()).toList();
@@ -658,6 +668,12 @@ class _SchedulePageState extends State<SchedulePage> {
                 ],
               ),
               actions: [
+                if (isDesktop())
+                  PageRefreshButton(
+                    onRefresh: _refresh,
+                    enabled: auth.isLoggedIn && tpAuth.hasCpdailyBinding,
+                    refreshing: _schedule.loading || _assignments.loading,
+                  ),
                 IconButton(
                   icon: const Icon(Icons.chevron_left),
                   tooltip: 'Previous week',
@@ -767,7 +783,7 @@ class _SchedulePageState extends State<SchedulePage> {
                             ),
                           );
                         } else {
-                          unawaited(presentLoginPage(context));
+                          unawaited(startUniAuthLogin(context));
                         }
                       },
                       accessibilityLabel: auth.isLoggedIn ? '绑定 eGate 账号' : '登录 TechPie',
@@ -775,7 +791,7 @@ class _SchedulePageState extends State<SchedulePage> {
                   ],
                 ),
               )
-            : RefreshIndicator(
+            : PageRefreshIndicator(
                 onRefresh: _refresh,
                 child: useIosChrome
                     ? PageView.builder(
@@ -840,7 +856,9 @@ class _SchedulePageState extends State<SchedulePage> {
                 Text(
                   switch (state) {
                     EmptyWeekState.loading => '正在获取课表…',
-                    EmptyWeekState.failed => '课表加载失败，下拉刷新重试',
+                    EmptyWeekState.failed => isDesktop()
+                        ? '课表加载失败，点击右上角刷新重试'
+                        : '课表加载失败，下拉刷新重试',
                     EmptyWeekState.noClasses => '本周没有课程',
                   },
                   style: theme.textTheme.bodyLarge?.copyWith(

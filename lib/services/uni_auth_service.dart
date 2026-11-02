@@ -6,8 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
-import '../pages/macos_casdoor_auth_page.dart';
-import '../pages/ohos_casdoor_auth_page.dart';
+import '../pages/uni_auth_webview_page.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import 'debug_logger.dart';
 
@@ -145,88 +144,49 @@ class UniAuthService extends ChangeNotifier {
     try {
       final casdoor = _getCasdoor();
       final String callbackUrl;
-      if (defaultTargetPlatform.name == 'ohos') {
-        callbackUrl = await _showOhosLogin(navigator, casdoor);
-      } else if (defaultTargetPlatform == TargetPlatform.macOS) {
-        callbackUrl = await _showMacosLogin(navigator, casdoor);
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.macOS ||
+              defaultTargetPlatform.name == 'ohos')) {
+        final result = await navigator.push<String>(
+          adaptivePageRoute<String>(
+            builder: (_) => UniAuthWebViewPage(
+              authorizeUrl: casdoor.getSigninUrl().toString(),
+              callbackUri: Uri.parse(_uniAuthRedirectUri),
+            ),
+          ),
+        );
+        if (result == null || result.isEmpty) {
+          throw CasdoorAuthCancelledException();
+        }
+        callbackUrl = result;
       } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
         try {
           callbackUrl = await const MethodChannel('techpie/uni_auth')
               .invokeMethod<String>('authenticate', <String, String>{
                 'url': casdoor.getSigninUrl().toString(),
                 'proxy': proxyUrl,
-              }) ?? '';
+              }) ??
+              '';
         } on PlatformException catch (error) {
           if (error.code == 'CANCELLED') throw CasdoorAuthCancelledException();
           rethrow;
         }
       } else {
+        // Windows/Linux use the SDK's desktop WebView window; web keeps its
+        // browser OAuth flow. Neither needs an intermediate Flutter page.
         callbackUrl = await casdoor.showFullscreen(context);
       }
       final code = _extractCode(callbackUrl);
       if (code.isEmpty) {
         throw Exception('Login cancelled or failed');
       }
-      return _exchangeCode(casdoor, code);
+      return await _exchangeCode(casdoor, code);
     } finally {
       _loading = false;
       notifyListeners();
     }
-  }
-
-  /// Open the GeekPie Uni-Auth login using a system browser (no BuildContext).
-  /// Used by the native iOS liquid glass login sheet.
-  Future<SsoTokens> loginSdkOnly() async {
-    _loading = true;
-    notifyListeners();
-    try {
-      final casdoor = _getCasdoor();
-      final callbackUrl = await casdoor.show();
-      final code = _extractCode(callbackUrl);
-      if (code.isEmpty) {
-        throw Exception('Login cancelled or failed');
-      }
-      return _exchangeCode(casdoor, code);
-    } finally {
-      _loading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<String> _showOhosLogin(
-    NavigatorState navigator,
-    Casdoor casdoor,
-  ) async {
-    final callbackUrl = await navigator.push<String>(
-      adaptivePageRoute<String>(
-        builder: (_) => OhosCasdoorAuthPage(
-          authorizeUrl: casdoor.getSigninUrl().toString(),
-          callbackScheme: _uniAuthCallbackScheme,
-        ),
-      ),
-    );
-    if (callbackUrl == null || callbackUrl.isEmpty) {
-      throw CasdoorAuthCancelledException();
-    }
-    return callbackUrl;
-  }
-
-  Future<String> _showMacosLogin(
-    NavigatorState navigator,
-    Casdoor casdoor,
-  ) async {
-    final callbackUrl = await navigator.push<String>(
-      adaptivePageRoute<String>(
-        builder: (_) => MacosCasdoorAuthPage(
-          authorizeUrl: casdoor.getSigninUrl().toString(),
-          callbackScheme: _uniAuthCallbackScheme,
-        ),
-      ),
-    );
-    if (callbackUrl == null || callbackUrl.isEmpty) {
-      throw CasdoorAuthCancelledException();
-    }
-    return callbackUrl;
   }
 
   /// Exchange an authorization code for the SSO token bundle.

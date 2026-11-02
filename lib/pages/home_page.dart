@@ -22,8 +22,8 @@ import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
 import '../widgets/tg_glass_surface.dart';
+import '../widgets/uni_auth_login.dart';
 import 'generic_webview_page.dart';
-import 'login_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -351,7 +351,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _handleFeatureTap(Feature feature) {
     if (!ServiceProvider.of(context).authService.isLoggedIn) {
-      unawaited(presentLoginPage(context));
+      unawaited(startUniAuthLogin(context));
       return;
     }
     switch (feature.mode) {
@@ -387,7 +387,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         actionLabel: '登录',
         actionSfSymbol: 'person.crop.circle.badge.checkmark',
         onTap: () async {
-          await presentLoginPage(context);
+          await startUniAuthLogin(context);
           if (!mounted) return;
           setState(() {});
         },
