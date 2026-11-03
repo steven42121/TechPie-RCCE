@@ -537,7 +537,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     }
     if (release == null || !mounted) return;
 
-// This State sits above the MaterialApp, so its own context has no
+    // This State sits above the MaterialApp, so its own context has no
     // MaterialLocalizations and no navigator to put a dialog on; ask the app's
     // navigator instead.
     final dialogContext = _navigatorKey.currentContext;
