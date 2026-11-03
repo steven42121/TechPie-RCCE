@@ -60,4 +60,34 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
+
+  testWidgets('rear-sized landscape card renders the QR without overflow', (
+    tester,
+  ) async {
+    await runtime.auth.signIn(const DemoAuthCredential());
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 320,
+              height: 150,
+              child: GlancePaymentView(runtime: runtime),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(find.byKey(const Key('glance-payment-qr')), findsOneWidget);
+    expect(find.text('在线付款码'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
 }

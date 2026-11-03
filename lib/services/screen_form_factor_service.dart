@@ -90,9 +90,9 @@ class ScreenFormFactorService extends ChangeNotifier {
 ///   fallback covers HyperOS builds where the reflection probe is unavailable.
 /// - The MIX Flip cover shares display 0 with the inner screen, so the window
 ///   size is the signal: the 4.01" panel is 1392x1208 px, a wide near-square
-///   window of about 506x439 dp. The inner screen is about 445x1059 dp, so
-///   height separates them; a split-screen half on the inner screen is taller
-///   than it is wide and never matches the cover rule.
+///   window of about 506x439 dp. The inner screen is about 1059x445 dp in
+///   landscape, so its width is the separator: the cover is wider than tall
+///   but no wider than [600] dp, while the unfolded inner screen is much wider.
 GlanceSurface classifyGlanceSurface({
   required Size logicalSize,
   required ScreenFormFactorInfo? info,
@@ -109,6 +109,7 @@ GlanceSurface classifyGlanceSurface({
   if (info.isFlipDevice &&
       !secondary &&
       width >= 400 &&
+      width <= 600 &&
       height <= 600 &&
       width > height) {
     return GlanceSurface.cover;

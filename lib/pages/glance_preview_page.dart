@@ -79,39 +79,48 @@ class _GlancePreviewPageState extends State<GlancePreviewPage> {
                   ),
                   const SizedBox(height: 12),
                   Center(
-                    child: Container(
-                      width: width,
-                      height: height,
-                      clipBehavior: Clip.antiAlias,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(cover ? 26 : 14),
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.16),
-                            blurRadius: 24,
-                            offset: const Offset(0, 8),
+                    // The cover preview is wider than a phone screen; scale the
+                    // whole 506×439 surface down so the preview keeps the real
+                    // aspect ratio instead of being clamped to the screen width.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.topCenter,
+                      child: Container(
+                        width: width,
+                        height: height,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(cover ? 26 : 14),
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.outlineVariant,
                           ),
-                        ],
-                      ),
-                      child: MediaQuery(
-                        data: MediaQuery.of(context).copyWith(
-                          size: Size(width, height),
-                          padding: EdgeInsets.zero,
-                          viewPadding: EdgeInsets.zero,
-                          viewInsets: EdgeInsets.zero,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.16),
+                              blurRadius: 24,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                         ),
-                        child: LiveGlanceShell(
-                          surface: _surface,
-                          settings: settings,
-                          scheduleService: services.scheduleService,
-                          assignmentService: services.assignmentService,
-                          authService: services.authService,
-                          consumeEntry: false,
-                          paymentBuilder: (_) =>
-                              const GlancePaymentPreviewCard(),
+                        child: MediaQuery(
+                          data: MediaQuery.of(context).copyWith(
+                            size: Size(width, height),
+                            padding: EdgeInsets.zero,
+                            viewPadding: EdgeInsets.zero,
+                            viewInsets: EdgeInsets.zero,
+                          ),
+                          child: LiveGlanceShell(
+                            surface: _surface,
+                            settings: settings,
+                            scheduleService: services.scheduleService,
+                            assignmentService: services.assignmentService,
+                            authService: services.authService,
+                            consumeEntry: false,
+                            paymentBuilder: (_) =>
+                                const GlancePaymentPreviewCard(),
+                          ),
                         ),
                       ),
                     ),

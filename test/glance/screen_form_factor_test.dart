@@ -107,6 +107,16 @@ void main() {
         ),
         GlanceSurface.none,
       );
+      // The real inner panel, landscape: 2912x1224 px at 440dpi. It must not
+      // be mistaken for the wide cover panel.
+      expect(
+        classifyGlanceSurface(
+          logicalSize: const Size(1059, 445),
+          info: _info(flip: true),
+          enabled: true,
+        ),
+        GlanceSurface.none,
+      );
     });
 
     test('small split-screen on a normal phone stays full', () {
