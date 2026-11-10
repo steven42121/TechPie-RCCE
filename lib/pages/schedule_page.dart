@@ -26,6 +26,7 @@ import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/adaptive_text_input_dialog.dart';
 import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../widgets/course_block_label.dart';
 import '../widgets/course_detail_panel.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
@@ -1804,11 +1805,9 @@ class _CourseBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
     final containerColor = course.color.containerColor(colorScheme);
     final textColor = course.color.onContainerColor(colorScheme);
-    final hasTeachers = course.teachers != null && course.teachers!.isNotEmpty;
 
     return Opacity(
       opacity: course.isGhost ? 0.3 : 1.0,
@@ -1819,86 +1818,14 @@ class _CourseBlock extends StatelessWidget {
         child: InkWell(
           onTap: () => _showCourseDetail(context),
           borderRadius: BorderRadius.circular(8),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final maxH = constraints.maxHeight - 8; // account for padding
-              // Budget from the top down in real pixels: the name claims at
-              // most four lines, then time, teachers and location each get a
-              // line only if what is left can hold it. Subtracting the name's
-              // own height is what keeps a short block from overflowing.
-              const nameLineH = 14.4;
-              const smallLineH = 13.2;
-              final nameLines = maxH >= 100 ? 4 : (maxH >= 72 ? 3 : 2);
-              var remaining = maxH - nameLines * nameLineH;
-              final showTime = course.usesCustomTime && remaining >= smallLineH;
-              if (showTime) remaining -= smallLineH;
-              final showTeachers = hasTeachers && remaining >= smallLineH;
-              if (showTeachers) remaining -= smallLineH;
-              final showLocation =
-                  course.location.isNotEmpty && remaining >= smallLineH;
-              final teacherLines = 2;
-              final locationLines = 2;
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      course.name,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: textColor,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                        height: 1.2,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: nameLines,
-                    ),
-                    if (showTime) ...[
-                      const SizedBox(height: 1),
-                      Text(
-                        '${course.startTime}–${course.endTime}',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: textColor,
-                          fontSize: 9,
-                          height: 1.1,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    if (showTeachers) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        course.teachers!,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: textColor,
-                          fontSize: 11,
-                          height: 1.2,
-                        ),
-                        maxLines: teacherLines,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    if (showLocation) ...[
-                      const Spacer(),
-                      Text(
-                        course.location,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: textColor,
-                          fontSize: 10,
-                          height: 1.2,
-                        ),
-                        maxLines: locationLines,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
-              );
-            },
+          child: CourseBlockLabel(
+            name: course.name,
+            color: textColor,
+            time: course.usesCustomTime
+                ? '${course.startTime}–${course.endTime}'
+                : null,
+            teachers: course.teachers,
+            location: course.location,
           ),
         ),
       ),
