@@ -7,6 +7,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/api_base_url.dart';
+import '../services/feedback_service.dart';
 import '../services/http_client.dart';
 import '../services/island_service.dart';
 import '../services/service_provider.dart';
@@ -35,6 +37,7 @@ import 'account_deletion_page.dart';
 import 'debug_log_page.dart';
 import 'debug_webview_page.dart';
 import 'developer_lab_page.dart';
+import 'feedback_page.dart';
 import 'glance_settings_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
@@ -363,6 +366,21 @@ class _SettingsPageState extends State<SettingsPage> {
             const Divider(),
 
             const FeedbackEntry(),
+            ListTile(
+              leading: const Icon(Icons.rate_review_outlined),
+              title: const Text('问题反馈 / 功能建议'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                if (!auth.isLoggedIn) await startUniAuthLogin(context);
+                if (!context.mounted || !auth.isLoggedIn) return;
+                await pushAdaptivePage<void>(
+                  context,
+                  builder: (_) => FeedbackPage(
+                    service: FeedbackService(auth, apiBaseUrl(storage)),
+                  ),
+                );
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.privacy_tip_outlined),
               title: const Text('隐私政策与使用支持'),
