@@ -36,7 +36,7 @@
 | [#137](https://github.com/HeZeBang/TechPie-flutter/pull/137) | @HeZeBang | 已合入 | ci: Flutter 3.41.9 everywhere, OHOS fork 3.41.9+ohos-1.0.2, toolchain 26.0.0.851 | 历史索引；未按标题计为额外功能 |
 | [#136](https://github.com/HeZeBang/TechPie-flutter/pull/136) | @fengyoujingava | 已合入 | feat(deadlines): ddl countdown & support the `latedue` field for Gradescope & update flutter on iOS to 3.41.9 | C11 |
 | [#135](https://github.com/HeZeBang/TechPie-flutter/pull/135) | @reisa531 | 已关闭未合入 | feat: Huawei Watch companion, GenAI API gateway, Linux deadline widgets and feedback | A07, A12, A13, A14, A34, A40, D02 |
-| [#129](https://github.com/HeZeBang/TechPie-flutter/pull/129) | @vvbbnn00 | 已合入 | Support Apple Watch online payment codes and improve eCard usability | B01, B02, B03, B04, B16, B17, B18, B26, C14, C15, D03, D04, D05, D06 |
+| [#129](https://github.com/HeZeBang/TechPie-flutter/pull/129) | @vvbbnn00 | 已合入 | Support Apple Watch online payment codes and improve eCard usability | B01, B02, B03, B04, B16, B17, B18, B20, B26, C14, C15, D03, D04, D05, D06 |
 | [#128](https://github.com/HeZeBang/TechPie-flutter/pull/128) | @lonelyapple233 | 已合入 | feat(iOS): Minor iOS widget orientation fix | 历史索引；未按标题计为额外功能 |
 | [#125](https://github.com/HeZeBang/TechPie-flutter/pull/125) | @reisa531 | 已关闭未合入 | feat: add watch support for harmonyos, including ecardbind reader and… | 历史索引；未按标题计为额外功能 |
 | [#124](https://github.com/HeZeBang/TechPie-flutter/pull/124) | @GregTaoo | 开放 | feat: 支持课程直播与录播原生播放 | P02, P03 |
