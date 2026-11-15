@@ -164,6 +164,6 @@
 
 差异基于固定树比较，避免 `master` 后续移动造成误读。使用 `git diff --name-status aaefb6a <快照树>` 和 `git diff --numstat aaefb6a <快照树>` 生成逐文件目录；实际功能判定结合调用入口、配置开关、平台条件与 PR 文件补丁。涉及旧环境备份仅记录“文件仍存在”，不复述内容。
 
-本次功能移植之前的验证结果为：Flutter 静态分析通过、842 个 Flutter 测试通过、Linux release 本地构建成功。发布前及 GitHub Actions 的最终结果以本次发布记录为准；这些结果不能替代实机校园登录、Apple 签名或厂商穿戴授权验证。
+本次功能移植完成后的本地验证结果为：Flutter 静态分析通过、842 个 Flutter 测试通过、Linux release 本地构建成功。发布前及 GitHub Actions 的最终结果以本次发布记录为准；这些结果不能替代实机校园登录、Apple 签名或厂商穿戴授权验证。
 
 [逐文件核对目录（422 项）](rcce-upstream-file-audit-2026-11-15.md) · [PR 来源索引（121 项）](rcce-upstream-pr-sources-2026-11-15.md)
