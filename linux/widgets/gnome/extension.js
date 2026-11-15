@@ -135,7 +135,7 @@ export default class TechPieDeadlines extends Extension {
             heading.add_child(new St.Label({text: remaining(item.dueAt, now),
                 style_class: `techpie-deadline-time techpie-deadline-time-${level}`}));
             box.add_child(heading);
-            box.add_child(new St.Label({text: `${item.course}  ·  ${new Date(item.dueAt * 1000).toLocaleString()}`,
+            box.add_child(new St.Label({text: `${item.subtitle}  ·  ${new Date(item.dueAt * 1000).toLocaleString()}`,
                 style_class: 'techpie-deadline-detail'}));
             row.add_child(box);
             row.connect('activate', () => this._open());

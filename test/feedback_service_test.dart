@@ -28,14 +28,16 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
     final storage = StorageService(await SharedPreferences.getInstance());
-    await storage.saveSession(UserSession(
-      userId: 'geekpie/test-user',
-      userName: 'Test user',
-      schoolName: '上海科技大学',
-      createdAt: DateTime.utc(2026),
-      geekpieToken: 'test-token',
-      geekpieExpiresAt: DateTime.now().add(const Duration(days: 1)).toIso8601String(),
-    ));
+    await storage.saveSession(
+      UserSession(
+        userId: 'geekpie/test-user',
+        userName: 'Test user',
+        schoolName: '上海科技大学',
+        createdAt: DateTime.utc(2026),
+        geekpieToken: 'test-token',
+        geekpieExpiresAt: DateTime.now().add(const Duration(days: 1)).toIso8601String(),
+      ),
+    );
     PackageInfo.setMockInitialValues(
       appName: 'TechPie',
       packageName: 'club.geekpie.techpie',
@@ -56,7 +58,10 @@ void main() {
         requests.add(request);
         if (request.url.path.endsWith('/images')) {
           return http.Response(
-            jsonEncode({'success': uploadStatus == 200, 'data': {'id': 'image-1'}}),
+            jsonEncode({
+              'success': uploadStatus == 200,
+              'data': {'id': 'image-1'},
+            }),
             uploadStatus,
           );
         }
@@ -102,7 +107,9 @@ void main() {
     await feedback.submit('带图反馈', images: [image]);
     expect(requests.where((request) => request.url.path.endsWith('/images')), hasLength(2));
     final body = jsonDecode((requests.last as http.Request).body) as Map<String, dynamic>;
-    expect(body['images'], [{'id': 'image-1'}]);
+    expect(body['images'], [
+      {'id': 'image-1'},
+    ]);
   });
 
   test('backend authentication errors remain actionable', () async {

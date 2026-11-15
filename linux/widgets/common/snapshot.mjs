@@ -17,10 +17,10 @@ export function decodeSnapshot(json) {
     const ids = new Set();
     for (const item of snapshot.items) {
         if (!item || typeof item !== 'object' || Array.isArray(item) ||
-            Object.keys(item).sort().join(',') !== 'course,dueAt,id,kind,title' ||
+            Object.keys(item).sort().join(',') !== 'dueAt,id,kind,subtitle,title' ||
             !text(item.id) || !item.id || ids.has(item.id) ||
             !['assignment', 'exam'].includes(item.kind) || !text(item.title) ||
-            !text(item.course) || !timestamp(item.dueAt))
+            !text(item.subtitle) || !timestamp(item.dueAt))
             throw new Error('Invalid item');
         ids.add(item.id);
     }

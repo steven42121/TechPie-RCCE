@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 26.2.110323+26110323
+version: 26.2.111519+26111519
 
 environment:
   sdk: ">=3.6.2 <4.0.0"
@@ -30,8 +30,10 @@ environment:
 dependencies:
   animations: ^2.0.11
   casdoor_flutter_sdk: ^1.0.0
+  cbor: 6.3.5
   clock: ">=1.1.1 <1.2.0"
   connectivity_plus: 6.1.4
+  cookie_jar: ^4.0.8
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   crypto: 3.0.7
@@ -49,23 +51,46 @@ dependencies:
       url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git
       path: flutter_secure_storage_ohos
       ref: br_v9.2.2_ohos
+  html: ^0.15.6
   http: ^1.4.0
   image_picker:
     git:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/image_picker/image_picker
       ref: br_image_picker-v1.1.2_ohos
+  # Flutter 3.41 only registers plugins in the root dependency closure.
+  # Keep the OHOS implementations direct and pinned to their resolved commits.
+  image_picker_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/image_picker/image_picker_ohos
+      ref: 4500f9da7c8223eb92ddc1fc2bff5ada36cf5cbe
   intl: ^0.20.2
   mobile_scanner: ^6.0.10
   open_filex: ^4.5.0
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5
+  path_provider_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/path_provider/path_provider_ohos
+      ref: d8bf2cf9d726cce4d308521f4fb500d832523002
   pointycastle: 4.0.0
   qr_flutter: 4.1.0
   reel_text: ^0.4.3
   screen_brightness: 2.1.11
   shared_preferences: ^2.3.0
+  shared_preferences_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/shared_preferences/shared_preferences_ohos
+      ref: 35fb467533e174411a117b2a030c15d2a3a9687c
   url_launcher: ^6.3.0
+  url_launcher_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/url_launcher/url_launcher_ohos
+      ref: 35fb467533e174411a117b2a030c15d2a3a9687c
   web: ^1.1.1
   webview_flutter:
     # HeZeBang/br_webview_flutter_ohos: the OHOS fork, plus document-start
@@ -85,14 +110,6 @@ dependency_overrides:
       url: https://github.com/HeZeBang/desktop_webview_window_fork.git
       ref: feature/techpie-bridge
 
-  # OpenHarmony-SIG forks add OHOS platform implementations for plugins
-  # whose upstream pub.dev releases don't ship them. Without these, the
-  # MethodChannel calls on OHOS throw MissingPluginException at boot.
-  image_picker_ohos:
-    git:
-      url: https://gitee.com/openharmony-sig/flutter_packages.git
-      path: packages/image_picker/image_picker_ohos
-      ref: br_image_picker-v1.1.2_ohos
   mobile_scanner:
     # HeZeBang/mobile_scanner_ohos: the OHOS fork of mobile_scanner 6.0.10 plus
     # TechPie's patches — the preview freezes on its last frame, and every start
@@ -109,23 +126,10 @@ dependency_overrides:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
       path: packages/package_info_plus/package_info_plus
-  path_provider_ohos:
-    git:
-      url: https://gitee.com/openharmony-sig/flutter_packages.git
-      path: packages/path_provider/path_provider_ohos
-      ref: br_path_provider-v2.1.4_ohos
   # Match Flutter 3.27's Android SDK 35 without raising the host toolchain.
   screen_brightness_android: 2.1.3
   # Newer iOS releases require FlutterSceneLifeCycleDelegate, absent in Flutter 3.27.
   screen_brightness_ios: 2.1.2
-  shared_preferences_ohos:
-    git:
-      url: https://gitee.com/openharmony-sig/flutter_packages.git
-      path: packages/shared_preferences/shared_preferences_ohos
-  url_launcher_ohos:
-    git:
-      url: https://gitee.com/openharmony-sig/flutter_packages.git
-      path: packages/url_launcher/url_launcher_ohos
   webview_flutter_platform_interface:
     git:
       url: https://github.com/HeZeBang/br_webview_flutter_ohos.git
@@ -191,6 +195,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/help/ids_passkey.png
     - assets/campus_card/audio/
     - assets/campus_card/data/
     - assets/campus_card/images/card-full.png

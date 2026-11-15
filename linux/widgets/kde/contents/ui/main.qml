@@ -83,7 +83,7 @@ PlasmoidItem {
                     radius: Kirigami.Units.largeSpacing
                     color: root.cardColor(modelData.dueAt)
                 }
-                Accessible.name: modelData.title + ", " + modelData.course + ", " +
+                Accessible.name: modelData.title + ", " + modelData.subtitle + ", " +
                     new Date(modelData.dueAt * 1000).toLocaleString()
                 onClicked: deadlines.openApp()
                 contentItem: ColumnLayout {
@@ -105,7 +105,7 @@ PlasmoidItem {
                         }
                     }
                     PlasmaComponents.Label {
-                        text: modelData.course + " · " + new Date(modelData.dueAt * 1000).toLocaleString()
+                        text: modelData.subtitle + " · " + new Date(modelData.dueAt * 1000).toLocaleString()
                         elide: Text.ElideRight; Layout.fillWidth: true; opacity: 0.7
                     }
                 }

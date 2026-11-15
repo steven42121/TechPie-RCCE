@@ -76,7 +76,12 @@ class DeadlineWidgetService with WidgetsBindingObserver {
         'id': id,
         'kind': a.kind.id,
         'title': String.fromCharCodes(a.title.runes.take(256)),
-        'course': String.fromCharCodes(a.course.runes.take(128)),
+        'subtitle': String.fromCharCodes(
+          switch (a) {
+            ExamAssignment(:final location) => location.trim().runes,
+            _ => a.course.runes,
+          }.take(128),
+        ),
         'dueAt': due,
       };
       final size = utf8.encode(jsonEncode(row)).length + 1;

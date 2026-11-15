@@ -43,12 +43,14 @@ void main() {
     SharedPreferences.setMockInitialValues({'sync_enabled': true});
     FlutterSecureStorage.setMockInitialValues({});
     storage = StorageService(await SharedPreferences.getInstance());
-    await storage.saveSession(UserSession(
-      userId: 'geekpie/account',
-      userName: 'Test user',
-      schoolName: '上海科技大学',
-      createdAt: DateTime.utc(2026),
-    ));
+    await storage.saveSession(
+      UserSession(
+        userId: 'geekpie/account',
+        userName: 'Test user',
+        schoolName: '上海科技大学',
+        createdAt: DateTime.utc(2026),
+      ),
+    );
     http = LoggingHttpClient(DebugLogger());
     auth = _ConfirmingAccount(storage, http, UniAuthService());
     await auth.loadSession();
@@ -77,10 +79,12 @@ void main() {
 
   testWidgets('confirming deletes the opened account exactly once', (tester) async {
     await pumpPage(tester);
-    await tester.tap(find.descendant(
-      of: find.byType(AlertDialog),
-      matching: find.widgetWithText(TextButton, '永久注销'),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(TextButton, '永久注销'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(auth.requests, 1);
     expect(auth.expectedUserId, 'geekpie/account');

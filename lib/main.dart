@@ -23,6 +23,7 @@ import 'services/ecard_widget_service.dart';
 import 'services/egate_app_service.dart';
 import 'services/glance_settings_service.dart';
 import 'services/http_client.dart';
+import 'services/ids/ids_client.dart';
 import 'services/island_service.dart';
 import 'services/keep_alive_service.dart';
 import 'services/oa_gym_service.dart';
@@ -43,6 +44,7 @@ import 'services/wear/wear_protocol.dart';
 import 'widgets/adaptive_feedback.dart';
 import 'widgets/app_shell/app_shell.dart';
 import 'widgets/glance/glance_gate.dart';
+import 'widgets/privacy_consent.dart';
 import 'widgets/update_dialogs.dart';
 /// The entrypoint a background engine runs: no UI, just the island and the
 /// spending alerts. It lives in this root library because the host resolves
@@ -58,6 +60,7 @@ void main(List<String> args) async {
 
   WidgetsFlutterBinding.ensureInitialized();
   await initializePlatformCapabilities();
+  await initializeCampusUserAgent();
   // OHOS white-screen probe disabled to speed up startup. Re-enable by
   // restoring the runApp(_BootProbe...) calls and wrapping init in try/catch.
   // runApp(const _BootProbe(message: '启动中…'));
@@ -103,6 +106,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final thirdPartyAuthService = ThirdPartyAuthService(
     storageService,
     httpClient,
+    idsClient: IdsClient(logger: debugLogger),
   );
   final scheduleService = ScheduleService(
     storageService,
@@ -139,8 +143,14 @@ final wearEngineService = isAndroid()
           ),
         )
       : null;
-  final deadlineWidgetService = !kIsWeb && defaultTargetPlatform == TargetPlatform.linux
-      ? DeadlineWidgetService(assignmentService, enabled: storageService.deadlineWidgetsEnabled)
+  final deadlineWidgetService = !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.linux ||
+              defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.macOS)
+      ? DeadlineWidgetService(
+          assignmentService,
+          enabled: storageService.deadlineWidgetsEnabled,
+        )
       : null;
   final syncService = SyncService(
     authService,
@@ -174,7 +184,7 @@ final wearEngineService = isAndroid()
   // state (throttled). Wired via post-construction setter to avoid a circular
   // dependency between ThirdPartyAuthService and SyncService.
   thirdPartyAuthService.onBindingsChanged = ({force = false}) {
-    // The timetable is drawn from the eGate binding, and `fetchAll` does nothing
+    // The timetable is drawn from the IDS binding, and `fetchAll` does nothing
     // at all while there is none — silently, which is how a freshly bound account
     // used to sit on an empty table with nothing to suggest it should reload. This
     // runs for every binding, though, and a timetable does not care about
@@ -343,7 +353,7 @@ final wearEngineService = isAndroid()
       );
     }
 
-    if (thirdPartyAuthService.hasCpdailyBinding) {
+    if (thirdPartyAuthService.hasIdsBinding) {
       // Through the funnel: the token renewals just above fire the same trigger,
       // and this used to be a second round on top of theirs.
       scheduleService.requestFetch(force: true);
@@ -611,7 +621,10 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
             theme: widget.themeService.lightTheme,
             darkTheme: widget.themeService.darkTheme,
             themeMode: widget.themeService.themeMode,
-            home: const AppShell(),
+            home: PrivacyGate(
+              onAccepted: () => setState(() {}),
+              child: const AppShell(),
+            ),
           ),
         ),
       ),

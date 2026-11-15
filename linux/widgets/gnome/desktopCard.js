@@ -139,7 +139,7 @@ export class DesktopCard {
             row.add_child(heading);
             const due = new Date(item.dueAt * 1000).toLocaleString(undefined,
                 {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'});
-            row.add_child(new St.Label({text: `${item.course} · ${due}`,
+            row.add_child(new St.Label({text: `${item.subtitle} · ${due}`,
                 x_expand: true, style_class: 'techpie-deadline-detail'}));
             const button = new St.Button({child: row, x_expand: true, can_focus: true,
                 style_class: 'techpie-desktop-item'});

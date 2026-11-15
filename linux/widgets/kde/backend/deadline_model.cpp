@@ -62,7 +62,7 @@ void DeadlineModel::refresh() {
         const QString kind = item.value("kind").toString();
         if (!value.isObject() || item.size() != 5 || !text(item.value("id")) || id.isEmpty() ||
             ids.contains(id) || (kind != "assignment" && kind != "exam") ||
-            !text(item.value("title")) || !text(item.value("course")) || !timestamp(item.value("dueAt"))) {
+            !text(item.value("title")) || !text(item.value("subtitle")) || !timestamp(item.value("dueAt"))) {
             m_items.clear(); emit changed(); return;
         }
         ids.insert(id);

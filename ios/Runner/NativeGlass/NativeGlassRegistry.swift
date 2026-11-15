@@ -14,6 +14,13 @@ enum NativeGlassRegistry {
       case "iosMajorVersion":
         let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         result(major)
+      case "getUserAgentInfo":
+        result([
+          "device": UIDevice.current.model,
+          "system": UIDevice.current.systemName,
+          "systemVersion": UIDevice.current.systemVersion,
+          "scale": UIScreen.main.scale,
+        ])
       default:
         result(FlutterMethodNotImplemented)
       }

@@ -31,14 +31,14 @@ class TechPieWearDataSource implements WearDataSource {
   Future<WearAccount> account() async {
     final session = auth.session;
     if (session == null) throw const WearFailure('ACCOUNT_NOT_READY');
-    final campus = accounts.cpdailyNode.account;
+    final campus = accounts.idsAccount;
     // Use a single identity source for both fields, never combine unrelated accounts.
     final name = campus == null ? session.userName : campus.name ?? '';
-    final studentId = campus == null ? session.studentId : campus.sid ?? '';
+    final studentId = campus == null ? session.studentId : campus.idsStudentId;
     final ecardId = await campusCard.readOpenId();
     return WearAccount(
       scope:
-          jsonEncode([session.userId, campus?.account, campus?.sid, ecardId]),
+          jsonEncode([session.userId, campus?.account, campus?.idsStudentId, ecardId]),
       name: name,
       studentId: studentId,
     )..toJson();

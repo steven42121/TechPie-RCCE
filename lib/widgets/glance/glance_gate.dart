@@ -90,7 +90,8 @@ class _GlanceGateState extends State<GlanceGate> with WidgetsBindingObserver {
           info: service.info,
           enabled: settings.enabled,
         );
-        final active = surface != GlanceSurface.none && settings.hasSections;
+        final active = services.storageService.privacyAccepted &&
+            surface != GlanceSurface.none && settings.hasSections;
         if (active) _glanceMounted = true;
 
         if (kDebugMode && surface != _lastSurface) {

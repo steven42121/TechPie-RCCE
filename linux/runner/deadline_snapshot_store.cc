@@ -53,7 +53,7 @@ gboolean deadline_snapshot_valid(const gchar* json, gsize length) {
     const gchar* kind = string(item, "kind", 16);
     if (json_object_get_size(item) != 5 || !id || !*id || !kind ||
         (g_strcmp0(kind, "exam") && g_strcmp0(kind, "assignment")) ||
-        !string(item, "title", 4096) || !string(item, "course", 4096) ||
+        !string(item, "title", 4096) || !string(item, "subtitle", 4096) ||
         !number(item, "dueAt") || g_hash_table_contains(ids, id)) return FALSE;
     g_hash_table_add(ids, const_cast<gchar*>(id));
   }

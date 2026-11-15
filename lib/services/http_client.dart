@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'campus_user_agent.dart';
 import 'debug_logger.dart';
 
 String _appProxy = '';
@@ -36,7 +37,7 @@ class LoggingHttpClient {
   }) async {
     _logger.log(method: 'GET', url: url.toString(), tag: tag);
     try {
-      final response = await _inner.get(url, headers: headers);
+      final response = await _inner.get(url, headers: {'User-Agent': CampusUserAgent.value, ...?headers});
       _logger.log(
         method: 'GET',
         url: url.toString(),
@@ -74,7 +75,7 @@ class LoggingHttpClient {
     try {
       final response = await _inner.post(
         url,
-        headers: headers,
+        headers: {'User-Agent': CampusUserAgent.value, ...?headers},
         body: bodyStr,
         encoding: encoding,
       );
@@ -104,7 +105,7 @@ class LoggingHttpClient {
   }) async {
     _logger.log(method: 'HEAD', url: url.toString(), tag: tag);
     try {
-      final response = await _inner.head(url, headers: headers);
+      final response = await _inner.head(url, headers: {'User-Agent': CampusUserAgent.value, ...?headers});
       _logger.log(
         method: 'HEAD',
         url: url.toString(),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/main.dart';
+import 'package:techpie/pages/assignments_page.dart';
 import 'package:techpie/services/assignment_service.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:techpie/services/campus_card_service.dart';
@@ -73,7 +74,10 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      // These tests are about the shell, not the first-launch consent.
+      'privacy_accepted_v1': true,
+    });
     final prefs = await SharedPreferences.getInstance();
     final storage = StorageService(prefs);
     final logger = DebugLogger();
@@ -115,12 +119,64 @@ void main() {
     expect(find.text('Settings'), findsWidgets);
   });
 
+  testWidgets('deadline widget cold and repeated warm routes reuse the page', (tester) async {
+    appShellPendingDeadlines.value = true;
+    addTearDown(() => appShellPendingDeadlines.value = false);
+    SharedPreferences.setMockInitialValues({'privacy_accepted_v1': true});
+    final storage = StorageService(await SharedPreferences.getInstance());
+    final logger = DebugLogger();
+    final http = LoggingHttpClient(logger);
+    final auth = AuthService(storage, http, UniAuthService());
+    final thirdParty = ThirdPartyAuthService(storage, http);
+    final schedule = ScheduleService(storage, http, auth, thirdParty);
+    final assignments = AssignmentService(storage, http, auth, thirdParty, schedule);
+
+    await tester.pumpWidget(
+      TechPieApp(
+        authService: auth,
+        debugLogger: logger,
+        storageService: storage,
+        themeService: ThemeService(storage),
+        scheduleService: schedule,
+        assignmentService: assignments,
+        thirdPartyAuthService: thirdParty,
+        oaGymService: OaGymService(auth, storage, thirdParty),
+        egateAppService: EgateAppService(auth, storage, thirdParty),
+        uniAuthService: UniAuthService(),
+        syncService: SyncService(auth, thirdParty, storage),
+        updateService: UpdateService(),
+        campusCardService: CampusCardService(),
+        ecardBindService: EcardBindService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(AssignmentsPage), findsOneWidget);
+    expect(appShellPendingDeadlines.value, isFalse);
+    final original = tester.element(find.byType(AssignmentsPage));
+
+    for (var i = 0; i < 2; i++) {
+      appShellPendingDeadlines.value = true;
+      await tester.pumpAndSettle();
+      expect(tester.element(find.byType(AssignmentsPage)), same(original));
+    }
+    await tester.tap(find.text('Home').first);
+    await tester.pumpAndSettle();
+    expect(find.byType(AssignmentsPage), findsNothing);
+    appShellPendingDeadlines.value = true;
+    await tester.pumpAndSettle();
+    expect(find.byType(AssignmentsPage), findsOneWidget);
+    expect(appShellPendingDeadlines.value, isFalse);
+  });
+
   testWidgets('Navigation switches pages', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      // These tests are about the shell, not the first-launch consent.
+      'privacy_accepted_v1': true,
+    });
     final prefs = await SharedPreferences.getInstance();
     final storage = StorageService(prefs);
     final logger = DebugLogger();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage_ohos/flutter_secure_storage_ohos.dart';
@@ -16,8 +17,230 @@ import 'package:techpie/services/storage_service.dart';
 import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
 
+import 'support/fake_ids_client.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('IDS unbind clears campus deadlines and retains other cached sources', () async {
+    final fixture = await _identityFixture(
+      (_, __) => http.Response('unavailable', 503),
+      account: FakeIdsClient.account('20240001'),
+      cached: [
+        for (final source in ['blackboard', 'exam', 'gradescope'])
+          _assignmentJson(id: source, platform: source, due: DateTime.utc(2027)),
+      ],
+    );
+
+    await fixture.thirdParty.unbind(ThirdPartyPlatform.ids);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(fixture.service.assignments.map((a) => a.platform), ['gradescope']);
+    expect(
+      fixture.storage.loadCachedAssignments().map((a) => a['platform']),
+      ['gradescope'],
+    );
+  });
+
+  for (final singlePlatform in [false, true]) {
+    for (final expired in [false, true]) {
+      test(
+          'failed ${expired ? 'scheduled' : '401'} renewal does not repeat ${singlePlatform ? 'platform' : 'all'} sync',
+          () async {
+        var renewCalls = 0;
+        var deadlineCalls = 0;
+        final unexpectedRenewal = Completer<http.Response>();
+        final fixture = await _identityFixture(
+          (url, body) {
+            if (url.path.endsWith('/auth/third-party/gradescope')) {
+              renewCalls++;
+              // Bound a regression's retry loop so the test can report it.
+              if (renewCalls > 2) return unexpectedRenewal.future;
+              return http.Response(
+                jsonEncode({'success': false, 'error': 'server unavailable'}),
+                500,
+              );
+            }
+            if (url.path.endsWith('/deadlines/gradescope')) {
+              deadlineCalls++;
+              return http.Response('{"success":false}', 401);
+            }
+            return http.Response('not found', 404);
+          },
+          account: _gradescopeAccount('old-account', 'old-token').copyWith(
+            autoRenew: true,
+            password: 'synthetic-password',
+            expire: DateTime.now()
+                    .add(
+                      expired
+                          ? const Duration(days: -1)
+                          : const Duration(days: 30),
+                    )
+                    .millisecondsSinceEpoch ~/
+                1000,
+          ),
+        );
+        fixture.service.enableAutoRefetch();
+        final fetch = singlePlatform
+            ? () => fixture.service.fetchPlatform('gradescope')
+            : fixture.service.fetchAssignments;
+
+        await fetch();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(renewCalls, 1);
+        expect(deadlineCalls, expired ? 0 : 1);
+        expect(fixture.service.loading, isFalse);
+        expect(fixture.thirdParty.renewStatus('gradescope')?.success, isFalse);
+        expect(
+          fixture.service.assignments.map((a) => a.id),
+          ['old-cache', 'unrelated'],
+        );
+
+        await fetch();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(renewCalls, 2, reason: 'an explicit retry remains available');
+        expect(deadlineCalls, expired ? 0 : 2);
+        expect(fixture.service.loading, isFalse);
+      });
+    }
+  }
+
+  for (final singlePlatform in [false, true]) {
+    test(
+        'account replacement rejects old ${singlePlatform ? 'platform' : 'all'} fetch and refetches',
+        () async {
+      final oldResponse = Completer<http.Response>();
+      final requested = Completer<void>();
+      final refreshed = Completer<void>();
+      final fixture = await _identityFixture((url, body) {
+        if (url.path.endsWith('/deadlines/gradescope')) {
+          if (body['token'] == 'old-token') {
+            if (!requested.isCompleted) requested.complete();
+            return oldResponse.future;
+          }
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': [
+                _assignmentJson(
+                  id: 'new-account',
+                  platform: 'gradescope',
+                  due: DateTime.utc(2027),
+                ),
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('not found', 404);
+      });
+      fixture.service.enableAutoRefetch();
+      fixture.service.addListener(() {
+        if (!fixture.service.loading &&
+            fixture.service.assignments.any((a) => a.id == 'new-account') &&
+            !refreshed.isCompleted) {
+          refreshed.complete();
+        }
+      });
+      final fetch = singlePlatform
+          ? fixture.service.fetchPlatform('gradescope')
+          : fixture.service.fetchAssignments();
+      await requested.future;
+      await fixture.thirdParty
+          .replaceAll([_gradescopeAccount('new-account', 'new-token')]);
+      expect(fixture.service.identityEpoch, greaterThan(0));
+      expect(fixture.service.assignments.map((a) => a.id), ['unrelated']);
+      oldResponse.complete(
+        http.Response(
+          jsonEncode({
+            'success': true,
+            'data': [
+              _assignmentJson(
+                id: 'stale-response',
+                platform: 'gradescope',
+                due: DateTime.utc(2027),
+              ),
+            ],
+          }),
+          200,
+        ),
+      );
+      await fetch;
+      await refreshed.future.timeout(const Duration(seconds: 3));
+      expect(
+        fixture.service.assignments.map((a) => a.id),
+        containsAll(['new-account', 'unrelated']),
+      );
+      expect(
+        fixture.storage.loadCachedAssignments().map((a) => a['id']),
+        isNot(contains('stale-response')),
+      );
+    });
+  }
+
+  test('a renewal that rotates sid is not an account change', () async {
+    var deadlineCalls = 0;
+    final fixture = await _identityFixture(
+      (url, body) {
+        if (url.path.endsWith('/deadlines/gradescope')) deadlineCalls++;
+        return http.Response('not found', 404);
+      },
+      account: _gradescopeAccount('old-account', 'old-token')
+          .copyWith(sid: 'session-1'),
+    );
+    fixture.service.enableAutoRefetch();
+    await fixture.thirdParty.replaceAll([
+      _gradescopeAccount('old-account', 'renewed-token')
+          .copyWith(sid: 'session-2'),
+    ]);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(fixture.service.identityEpoch, 0);
+    expect(
+      fixture.service.assignments.map((a) => a.id),
+      ['old-cache', 'unrelated'],
+    );
+    // The new token is still worth a refetch.
+    expect(deadlineCalls, 1);
+  });
+
+  test(
+      'logout invalidates pending results and binding renewal cannot restore them',
+      () async {
+    final response = Completer<http.Response>();
+    final requested = Completer<void>();
+    final fixture = await _identityFixture((url, body) {
+      requested.complete();
+      return response.future;
+    });
+    fixture.service.enableAutoRefetch();
+    final fetch = fixture.service.fetchAssignments();
+    await requested.future;
+    await fixture.auth.logout();
+    await fixture.thirdParty
+        .replaceAll([_gradescopeAccount('old-account', 'renewed-token')]);
+    response.complete(
+      http.Response(
+        jsonEncode({
+          'success': true,
+          'data': [
+            _assignmentJson(
+              id: 'stale-response',
+              platform: 'gradescope',
+              due: DateTime.utc(2027),
+            ),
+          ],
+        }),
+        200,
+      ),
+    );
+    await fetch;
+    expect(fixture.service.assignments, isEmpty);
+    expect(fixture.service.hasCachedData, isFalse);
+    expect(fixture.storage.hasCachedAssignments, isFalse);
+  });
 
   test('failed platform fetch keeps that platform cache', () async {
     SharedPreferences.setMockInitialValues({});
@@ -45,23 +268,10 @@ void main() {
         createdAt: DateTime.utc(2026),
       ),
     );
-    // Blackboard/exam fetches are gated on the eGate binding, not on the
+    // Blackboard/exam fetches are gated on the IDS binding, not on the
     // primary UserSession. Bind one with the tgc the test expects.
     await storage.saveThirdPartyAccount(
-      ThirdPartyAccount(
-        platform: ThirdPartyPlatform.cpdaily,
-        account: 'student',
-        sid: 'student',
-        token: 'session',
-        raw: const {
-          'tgc': 'tgc',
-          'cookies': '',
-          'sessionToken': 'session',
-          'userId': 'user',
-          'tenantId': 'tenant',
-        },
-        boundAt: DateTime.utc(2026),
-      ),
+      FakeIdsClient.account('20240001'),
     );
     await storage.saveThirdPartyAccount(
       ThirdPartyAccount(
@@ -73,15 +283,6 @@ void main() {
     );
 
     final httpClient = _AssignmentHttpClient((url, _) {
-      if (url.path.endsWith('/auth/third-party/elearning')) {
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {'token': 'session_id=elearning-mock'},
-          }),
-          200,
-        );
-      }
       if (url.path.endsWith('/deadlines/blackboard')) {
         return http.Response(
           jsonEncode({
@@ -106,7 +307,7 @@ void main() {
       return http.Response('not found', 404);
     });
     final auth = AuthService(storage, httpClient, UniAuthService());
-    final tpAuth = ThirdPartyAuthService(storage, httpClient);
+    final tpAuth = ThirdPartyAuthService(storage, httpClient, idsClient: FakeIdsClient());
     final schedule = ScheduleService(storage, httpClient, auth, tpAuth);
     await auth.loadSession();
     await tpAuth.initialize();
@@ -147,45 +348,14 @@ void main() {
         createdAt: DateTime.utc(2026),
       ),
     );
-    // Exam fetch reads cookies from the eGate binding, not UserSession.
+    // Exam fetch reads cookies from the IDS binding, not UserSession.
     await storage.saveThirdPartyAccount(
-      ThirdPartyAccount(
-        platform: ThirdPartyPlatform.cpdaily,
-        account: 'student',
-        sid: 'student',
-        token: 'session',
-        raw: const {
-          'tgc': 'tgc',
-          'cookies': 'SESSION=abc',
-          'sessionToken': 'session',
-          'userId': 'user',
-          'tenantId': 'tenant',
-        },
-        boundAt: DateTime.utc(2026),
-      ),
+      FakeIdsClient.account('20240001'),
     );
 
     final seenBodies = <Map<String, dynamic>>[];
     final httpClient = _AssignmentHttpClient((url, body) {
       seenBodies.add(body);
-      if (url.path.endsWith('/auth/third-party/elearning')) {
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {'token': 'session_id=elearning-mock'},
-          }),
-          200,
-        );
-      }
-      if (url.path.endsWith('/auth/third-party/eams')) {
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {'token': 'JSESSIONID=eams-mock'},
-          }),
-          200,
-        );
-      }
       if (url.path.endsWith('/deadlines/blackboard')) {
         return http.Response(
           jsonEncode({'success': true, 'data': <Object?>[]}),
@@ -225,7 +395,7 @@ void main() {
       return http.Response('not found', 404);
     });
     final auth = AuthService(storage, httpClient, UniAuthService());
-    final tpAuth = ThirdPartyAuthService(storage, httpClient);
+    final tpAuth = ThirdPartyAuthService(storage, httpClient, idsClient: FakeIdsClient());
     final schedule = ScheduleService(storage, httpClient, auth, tpAuth);
     await auth.loadSession();
     await tpAuth.initialize();
@@ -268,6 +438,45 @@ void main() {
     expect(cached, isA<ExamAssignment>());
     expect((cached as ExamAssignment).semesterId, '263');
   });
+
+  test('a session rotation does not discard cached deadlines as an identity change', () async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    final storage = StorageService(await SharedPreferences.getInstance());
+    final binding = ThirdPartyAccount(
+      platform: ThirdPartyPlatform.gradescope,
+      account: 'student',
+      token: 'old-token',
+      sid: 'old-session',
+      boundAt: DateTime.utc(2026),
+    );
+    await storage.saveThirdPartyAccount(binding);
+    await storage.saveCachedAssignments([
+      _assignmentJson(
+        id: 'cached',
+        platform: 'gradescope',
+        due: DateTime.now().add(const Duration(days: 1)),
+      ),
+    ]);
+    final http = LoggingHttpClient(DebugLogger());
+    final auth = AuthService(storage, http, UniAuthService());
+    final thirdParty = ThirdPartyAuthService(storage, http);
+    await thirdParty.initialize();
+    final schedule = ScheduleService(storage, http, auth, thirdParty);
+    final service = AssignmentService(storage, http, auth, thirdParty, schedule)
+      ..loadCached();
+    addTearDown(() {
+      service.dispose();
+      schedule.dispose();
+      thirdParty.dispose();
+      auth.dispose();
+      http.close();
+    });
+
+    await thirdParty.replaceAll([binding.copyWith(sid: 'renewed-session')]);
+    expect(service.identityEpoch, 0);
+    expect(service.assignments.single.id, 'cached');
+  });
 }
 
 Map<String, dynamic> _assignmentJson({
@@ -286,7 +495,7 @@ Map<String, dynamic> _assignmentJson({
 class _AssignmentHttpClient extends LoggingHttpClient {
   _AssignmentHttpClient(this._handler) : super(DebugLogger());
 
-  final http.Response Function(Uri url, Map<String, dynamic> body) _handler;
+  final FutureOr<http.Response> Function(Uri url, Map<String, dynamic> body) _handler;
 
   @override
   Future<http.Response> post(
@@ -301,4 +510,74 @@ class _AssignmentHttpClient extends LoggingHttpClient {
         : <String, dynamic>{};
     return _handler(url, decodedBody);
   }
+}
+
+ThirdPartyAccount _gradescopeAccount(String account, String token) =>
+    ThirdPartyAccount(
+      platform: ThirdPartyPlatform.gradescope,
+      account: account,
+      token: token,
+      boundAt: DateTime.utc(2026),
+    );
+
+Future<
+    ({
+      AssignmentService service,
+      ThirdPartyAuthService thirdParty,
+      AuthService auth,
+      StorageService storage
+    })> _identityFixture(
+  FutureOr<http.Response> Function(Uri, Map<String, dynamic>) handler, {
+  ThirdPartyAccount? account,
+  List<Map<String, dynamic>>? cached,
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  FlutterSecureStorage.setMockInitialValues({});
+  final storage = StorageService(await SharedPreferences.getInstance());
+  await storage.saveSession(
+    UserSession(
+      userId: 'synthetic-user',
+      userName: 'Synthetic',
+      schoolName: 'School',
+      createdAt: DateTime.utc(2026),
+    ),
+  );
+  await storage.saveThirdPartyAccount(
+    account ?? _gradescopeAccount('old-account', 'old-token'),
+  );
+  await storage.saveCachedAssignments(
+    cached ?? [
+      _assignmentJson(
+        id: 'old-cache',
+        platform: 'gradescope',
+        due: DateTime.utc(2027),
+      ),
+      _assignmentJson(
+        id: 'unrelated',
+        platform: 'synthetic',
+        due: DateTime.utc(2027),
+      ),
+    ],
+  );
+  final client = _AssignmentHttpClient(handler);
+  final auth = AuthService(storage, client, UniAuthService());
+  final thirdParty = ThirdPartyAuthService(storage, client);
+  await auth.loadSession();
+  await thirdParty.initialize();
+  final schedule = ScheduleService(storage, client, auth, thirdParty);
+  final service = AssignmentService(storage, client, auth, thirdParty, schedule)
+    ..loadCached();
+  addTearDown(() {
+    service.dispose();
+    schedule.dispose();
+    thirdParty.dispose();
+    auth.dispose();
+    client.close();
+  });
+  return (
+    service: service,
+    thirdParty: thirdParty,
+    auth: auth,
+    storage: storage
+  );
 }

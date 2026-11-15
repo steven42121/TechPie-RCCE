@@ -23,11 +23,16 @@ class MobileShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final usesIosChrome = isIos();
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomObstruction = (usesIosChrome
-            ? 49.0
-            : TgBottomNavBar.barHeight + TgBottomNavBar.margin * 2) +
-        bottomInset;
+    // Scaffold already stops the body at the keyboard. Reserving the tab bar
+    // as well would leave a blank strip above text inputs.
+    final bottomObstruction = keyboardVisible
+        ? 0.0
+        : (usesIosChrome
+                ? 49.0
+                : TgBottomNavBar.barHeight + TgBottomNavBar.margin * 2) +
+            bottomInset;
 
     return AppShellMetrics(
       bottomObstruction: bottomObstruction,

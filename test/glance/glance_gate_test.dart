@@ -48,13 +48,14 @@ Future<void> _pumpApp(
   WidgetTester tester, {
   required Size size,
   AppRuntime? runtime,
+  bool privacyAccepted = true,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({'privacy_accepted_v1': privacyAccepted});
   final prefs = await SharedPreferences.getInstance();
   final storage = StorageService(prefs);
   final logger = DebugLogger();
@@ -107,6 +108,18 @@ Future<void> _close(WidgetTester tester, [AppRuntime? runtime]) async {
 }
 
 void main() {
+  testWidgets('cover waits for privacy consent before showing campus data', (tester) async {
+    await _pumpApp(tester, size: const Size(506, 439), privacyAccepted: false);
+    expect(find.text('隐私政策'), findsOneWidget);
+    expect(find.byType(GlanceShell), findsNothing);
+
+    await tester.tap(find.text('同意并继续'));
+    await tester.pumpAndSettle();
+    expect(find.text('隐私政策'), findsNothing);
+    expect(find.byType(GlanceShell), findsOneWidget);
+    await _close(tester);
+  });
+
   testWidgets('a flip cover shows the glance and hides the full app', (
     tester,
   ) async {
