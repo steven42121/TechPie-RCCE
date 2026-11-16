@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 26.2.111519+26111519
+version: 26.2.111614+26111614
 
 environment:
   sdk: ">=3.6.2 <4.0.0"
@@ -39,6 +39,7 @@ dependencies:
   crypto: 3.0.7
   cryptography: ^2.9.0
   cupertino_icons: ^1.0.8
+  cupertino_native_better: 1.8.3
   desktop_webview_window: any
   dio: ^5.8.0
   dynamic_color: ">=1.7.0 <1.8.0"
@@ -58,15 +59,19 @@ dependencies:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/image_picker/image_picker
       ref: br_image_picker-v1.1.2_ohos
-  # Flutter 3.41 only registers plugins in the root dependency closure.
-  # Keep the OHOS implementations direct and pinned to their resolved commits.
+  # The OHOS platform implementations MUST be direct dependencies, not just
+  # dependency_overrides: from Flutter 3.41 the tool resolves the plugin
+  # registrant from `.dart_tool/package_graph.json`, whose root dependency
+  # closure drops override-only packages, so an overridden-only implementation
+  # is never registered and its channel throws MissingPluginException. Pinned by
+  # commit so a release builds the source it was tested against.
   image_picker_ohos:
     git:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/image_picker/image_picker_ohos
       ref: 4500f9da7c8223eb92ddc1fc2bff5ada36cf5cbe
   intl: ^0.20.2
-  mobile_scanner: ^6.0.10
+  mobile_scanner: ^7.0.1
   open_filex: ^4.5.0
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5
@@ -101,6 +106,13 @@ dependencies:
       ref: main
 
 dependency_overrides:
+  # iOS tab bar: upstream 1.8.3 plus a fix for the native bar resending every
+  # item on its first rebuild (iconSize was never cached at creation).
+  # Drop this once that fix ships upstream.
+  cupertino_native_better:
+    git:
+      url: https://github.com/Honahec/cupertino_native_better.git
+      ref: 1c01bff23a383e321f86f174753330a5ac7a7f33
   # Linux: use forked desktop_webview_window (WebKitGTK) for webview
   # popup, avoiding WPE WebKit EGL issues on Wayland. The fork adds
   # native setCookie via webkit_cookie_manager_add_cookie and forwards
@@ -110,18 +122,17 @@ dependency_overrides:
       url: https://github.com/HeZeBang/desktop_webview_window_fork.git
       ref: feature/techpie-bridge
 
+  # The OHOS platform implementations are direct dependencies above, not
+  # overrides: the 3.41 tool only scans the root dependency closure, so an
+  # override-only implementation is never registered and its channel throws
+  # MissingPluginException at boot.
   mobile_scanner:
-    # HeZeBang/mobile_scanner_ohos: the OHOS fork of mobile_scanner 6.0.10 plus
-    # TechPie's patches — the preview freezes on its last frame, and every start
-    # reports the preview's first frame. Pinned by commit, so a release always
-    # builds the source it was tested against; the patches and the reasoning are
-    # in that repository's history. dfdb43e reports the first frame from the
-    # analyzer instead of hijacking the SurfaceTexture frame listener, which had
-    # frozen the Android preview; 4067152 requests a clear preview resolution;
-    # 83e7071 corrects the scan-window geometry and reports the preview size.
+    # mobile_scanner 7.0.1 with OHOS support and TechPie's preview/Android
+    # patches, plus the iPhone 17 pixel-format fix. Apple's Vision backend
+    # supports arm64 iOS simulators. Pin the merged upstream commit.
     git:
       url: https://github.com/HeZeBang/mobile_scanner_ohos.git
-      ref: 83e7071204dd07dd84763f0e1b6d1f977b97fd7c
+      ref: 76f6f441ccd82d4c5942c2e79ff25e0719cc90dd
   package_info_plus:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
@@ -166,9 +177,8 @@ flutter_launcher_icons:
   android: true
   min_sdk_android: 21
   adaptive_icon_background: "#FFFFFF"
-  # Use the source directly: Git symlinks may become text files on Windows.
-  adaptive_icon_foreground: "assets/icon/icon.png"
-  adaptive_icon_monochrome: "assets/icon/icon.png"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  adaptive_icon_monochrome: "assets/icon/icon_monochrome.png"
   ios: true
   remove_alpha_ios: true
   web:

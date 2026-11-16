@@ -17,7 +17,16 @@ List<Course> coursesOnDay(
   final periods = table != null && table.periods.isNotEmpty
       ? table.periods.map((period) => period.toPeriod()).toList()
       : defaultPeriods;
-  final week = schedule.currentWeek();
+  final begin = schedule.termBegin;
+  final date = DateTime(day.year, day.month, day.day);
+  final firstDay = begin == null
+      ? null
+      : DateTime(begin.year, begin.month, begin.day);
+  final week = firstDay == null ? 1 : date.difference(firstDay).inDays ~/ 7 + 1;
+  if (firstDay != null &&
+      (date.isBefore(firstDay) || week > schedule.totalWeeks)) {
+    return const [];
+  }
   final withCustom = withCustomCourses(
     eamsToDisplayCourses(
       table?.courses ?? const <EamsCourse>[],

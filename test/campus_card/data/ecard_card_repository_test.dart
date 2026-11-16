@@ -112,8 +112,8 @@ void main() {
     offline.enqueue('POST', '/myaccount/openMyAccountApp', Future<Object?>.error(
       const AppFailure(FailureKind.network, 'synthetic network error'),
     ),);
-    final profile = await offlineRepository.profile();
-    expect(profile.displayName, '缓存用户');
+    await expectLater(offlineRepository.refreshCard(), throwsA(isA<AppFailure>()));
+    expect((await offlineRepository.readCachedCard())?.ownerName, '缓存用户');
     expect(network.state, PaymentConnectionState.apiError);
 
     subject = 'different-subject';

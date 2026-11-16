@@ -46,7 +46,7 @@ class IslandNotificationFactory(
     }
 
     fun ensureChannels() {
-        if (channelsReady) return
+        if (channelsReady || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
@@ -107,7 +107,7 @@ class IslandNotificationFactory(
             if (left > 0L) builder.setTimeoutAfter(left)
         }
 
-        if (backend == IslandBackend.HYPER_ISLAND) {
+        if (backend == IslandBackend.HYPER_ISLAND && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             runCatching { islandExtras(frame, notifyId, firstFloat) }
                 .onSuccess(builder::addExtras)
         } else {

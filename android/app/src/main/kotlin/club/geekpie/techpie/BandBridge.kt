@@ -60,7 +60,7 @@ class BandBridge(
             }
         }
         emit(mapOf("type" to "message", "data" to received))
-        Log.i(TAG, "message from $nodeId: $received")
+        Log.i(TAG, "received wearable message (${message.size} bytes)")
         when (messageType(received)) {
             "schedule.req" -> requestSchedule(nodeId, received)
             "assignments.req" -> requestFromDart(
@@ -177,6 +177,29 @@ class BandBridge(
             }
     }
 
+    private val serviceListener = object : OnServiceConnectionListener {
+                override fun onServiceConnected() {
+                    serviceConnected = true
+                    emitState()
+                    attachNodes()
+                }
+
+                override fun onServiceDisconnected() {
+                    serviceConnected = false
+                    emitState()
+                }
+            }
+
+    fun dispose() {
+        sink = null
+        mainHandler.removeCallbacksAndMessages(null)
+        eventChannel.setStreamHandler(null)
+        methodChannel.setMethodCallHandler(null)
+        Wearable.getServiceApi(context).unregisterServiceConnectionListener(serviceListener)
+        listenerNodeId?.let { Wearable.getMessageApi(context).removeListener(it) }
+        listenerNodeId = null
+    }
+
     fun start() {
         eventChannel.setStreamHandler(this)
         methodChannel.setMethodCallHandler { call, result ->
@@ -220,20 +243,7 @@ class BandBridge(
                 else -> result.notImplemented()
             }
         }
-        Wearable.getServiceApi(context).registerServiceConnectionListener(
-            object : OnServiceConnectionListener {
-                override fun onServiceConnected() {
-                    serviceConnected = true
-                    emitState()
-                    attachNodes()
-                }
-
-                override fun onServiceDisconnected() {
-                    serviceConnected = false
-                    emitState()
-                }
-            },
-        )
+        Wearable.getServiceApi(context).registerServiceConnectionListener(serviceListener)
         attachNodes()
     }
 

@@ -188,6 +188,8 @@ class MainActivity : FlutterActivity() {
         screenFormFactor = null
         wearEngine?.dispose()
         wearEngine = null
+        bandBridge?.dispose()
+        bandBridge = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

@@ -96,6 +96,7 @@ class SpendingNotificationBridge(
     }
 
     private fun ensureChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,

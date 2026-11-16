@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:desktop_webview_window/desktop_webview_window.dart'
     show runWebViewTitleBarWidget;
 import 'package:dynamic_color/dynamic_color.dart';
@@ -467,6 +468,7 @@ this.islandService,
 
 class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
+  final _nativeChromeObserver = CNTabBarRouteObserver();
 
   /// The silent check runs at launch and whenever the app comes back to the
   /// foreground, but not more often than this: a resume is not a reason to hit
@@ -609,7 +611,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
           MaterialApp(
             navigatorKey: _navigatorKey,
             scaffoldMessengerKey: rootMessengerKey,
-            navigatorObservers: [FeedbackRouteObserver()],
+            navigatorObservers: [FeedbackRouteObserver(), _nativeChromeObserver],
             builder: (context, child) => GlanceGate(
               child: AdaptiveFeedbackHost(
                 key: adaptiveFeedbackHostKey,

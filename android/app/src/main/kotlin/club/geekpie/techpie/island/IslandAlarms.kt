@@ -273,3 +273,12 @@ class IslandFrameReceiver : BroadcastReceiver() {
         ) { runCatching { pending.finish() } }
     }
 }
+/** Recover future cached frames after reboot or an application update. */
+class IslandRestoreReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED ||
+            intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            IslandAlarms.restore(context.applicationContext)
+        }
+    }
+}

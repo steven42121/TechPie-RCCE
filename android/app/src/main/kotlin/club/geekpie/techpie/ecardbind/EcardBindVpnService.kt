@@ -1,5 +1,6 @@
 package club.geekpie.techpie.ecardbind
 
+import android.os.Build
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.VpnService
@@ -151,7 +152,8 @@ class EcardBindVpnService : VpnService() {
             val manager = getSystemService(ConnectivityManager::class.java) ?: return "none"
             val network = manager.activeNetwork ?: return "none"
             val properties = manager.getLinkProperties(network)
-            "if=${properties?.interfaceName} privateDns=${properties?.privateDnsServerName}"
+            val privateDns = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) properties?.privateDnsServerName else null
+            "if=${properties?.interfaceName} privateDns=$privateDns"
         } catch (_: Exception) {
             "unreadable"
         }

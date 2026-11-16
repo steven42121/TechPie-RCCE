@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,8 +24,8 @@ import 'package:techpie/services/theme_service.dart';
 import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
 import 'package:techpie/services/update_service.dart';
+import 'package:techpie/widgets/adaptive_navigation_scaffold.dart';
 import 'package:techpie/widgets/ios/ios_native_navigation_bar.dart';
-import 'package:techpie/widgets/ios/ios_native_tab_bar.dart';
 
 /// The timetable only draws for a signed-in user with a campus session.
 class _SignedIn extends AuthService {
@@ -112,9 +113,7 @@ void main() {
     (tester) async {
       await pumpApp(tester);
 
-      tester
-          .widget<IosNativeTabBar>(find.byType(IosNativeTabBar))
-          .onSelected(1);
+      tester.widget<CNTabBar>(find.byType(CNTabBar)).onTap(1);
       // One frame: the page as it is first drawn, before any post-frame jump.
       await tester.pump();
 
@@ -129,11 +128,13 @@ void main() {
     'going back to this week keeps the title on this week while the pager flies',
     (tester) async {
       await pumpApp(tester);
-      tester.widget<IosNativeTabBar>(find.byType(IosNativeTabBar)).onSelected(1);
+      tester.widget<CNTabBar>(find.byType(CNTabBar)).onTap(1);
       await tester.pump(const Duration(seconds: 1));
 
       IosNativeNavigationBar bar() => tester
-          .widgetList<Scaffold>(find.byType(Scaffold))
+          .widgetList<AdaptiveNavigationScaffold>(
+            find.byType(AdaptiveNavigationScaffold),
+          )
           .map((w) => w.appBar)
           .whereType<IosNativeNavigationBar>()
           .firstWhere((b) => b.trailingItems.any((i) => i.id == 'currentWeek'));

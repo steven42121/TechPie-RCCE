@@ -38,7 +38,7 @@ class IslandCapabilityProbe(context: Context) {
 
     // Protocol version and the island feature flag are read-only system state.
     private val islandLikely: Boolean by lazy {
-        runCatching {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 && runCatching {
             FocusUtils.getFocusProtocolVersion(appContext) >= 3 || FocusUtils.isSupportIsland()
         }.getOrDefault(false)
     }

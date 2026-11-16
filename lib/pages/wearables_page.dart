@@ -120,7 +120,7 @@ class _WearablesPageState extends State<WearablesPage> {
   }
 
   String _subtitle(WearableDevice device) {
-    if (device.isAppleWatch) return '校园卡离线授权同步';
+    if (device.isAppleWatch) return '校园卡在线／离线付款与同步';
     if (device.isHuaweiWatch) return '华为运动手表 · 校园码与截止时间';
     final node = BandService.instance.nodeName;
     if (matchesConnectedNode(device, node)) return '已连接 · $node';

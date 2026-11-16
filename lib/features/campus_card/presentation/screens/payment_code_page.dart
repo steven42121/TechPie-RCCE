@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:techpie/utils/platform.dart';
 import 'package:techpie/widgets/page_refresh.dart';
 
@@ -27,7 +31,6 @@ import '../theme/colors.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
-import '../widgets/payment_code_qr.dart';
 import 'bill_transaction_screen.dart';
 import 'card_manage_screen.dart';
 import 'offline_screen.dart';
@@ -785,7 +788,12 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                 ),
               ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 52),
+                padding: EdgeInsets.fromLTRB(
+                  18,
+                  0,
+                  18,
+                  ApplePinnedHeaderLayout.contentBottom(context),
+                ),
                 sliver: switch (transactions) {
                   AsyncData(:final value) => TransactionList(
                       items: value.items
@@ -861,72 +869,82 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   }
 
   Future<void> _showStatusSheet({required CampusCard card}) async {
-    final selected = await showModalBottomSheet<bool>(
+    final selected = await CNBottomSheet.show<bool>(
       context: context,
       useRootNavigator: false,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (sheetContext) => Consumer(
-        builder: (context, ref, _) {
-          final payment = ref.watch(paymentCodeControllerProvider);
-          final networkState = ref.watch(campusNetworkStateProvider).valueOrNull ??
-              _networkStatus.state;
-          final manualOffline = ref.watch(manualOfflineModeProvider);
-          final authorization = ref
-              .watch(offlineAuthorizationProvider(card.id))
-              .valueOrNull
-              ?.state;
-          final canToggleOffline =
-              manualOffline ||
-              authorization == OfflineAuthorizationState.active ||
-              authorization == OfflineAuthorizationState.renewalDue;
-          final stateLabel = switch (networkState) {
-            PaymentConnectionState.disconnected => '网络已断开',
-            PaymentConnectionState.apiError => '服务响应异常或响应较慢',
-            _ => '网络正常',
-          };
-          final latency = payment.requestLatency == null
-              ? '--'
-              : '${payment.requestLatency!.inMilliseconds} ms';
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppleSection(
-                  children: [
-                    AppleListRow(label: '在线状态', value: stateLabel),
-                    AppleListRow(label: '当前延迟', value: latency),
-                    AppleListRow(
-                      label: '离线付款码',
-                      verticalPadding: 4,
-                      trailing: Switch.adaptive(
-                        // The switch is the user's mode, not "an offline code happens
-                        // to be on screen". An unavailable grant only blocks turning
-                        // the mode on; turning it off remains available.
-                        value: manualOffline,
-                        onChanged: canToggleOffline
-                            ? (value) => Navigator.pop(sheetContext, value)
-                            : null,
+      // A fixed-height sheet: iOS shows no grabber on one.
+      showDragHandle: Theme.of(context).platform != TargetPlatform.iOS,
+      builder: (sheetContext) => ApplePinnedHeaderLayout.sheetInsets(
+        sheetContext,
+        Consumer(
+          builder: (context, ref, _) {
+            final payment = ref.watch(paymentCodeControllerProvider);
+            final networkState =
+                ref.watch(campusNetworkStateProvider).valueOrNull ??
+                _networkStatus.state;
+            final manualOffline = ref.watch(manualOfflineModeProvider);
+            final authorization = ref
+                .watch(offlineAuthorizationProvider(card.id))
+                .valueOrNull
+                ?.state;
+            final canToggleOffline =
+                manualOffline ||
+                authorization == OfflineAuthorizationState.active ||
+                authorization == OfflineAuthorizationState.renewalDue;
+            final stateLabel = switch (networkState) {
+              PaymentConnectionState.disconnected => '网络已断开',
+              PaymentConnectionState.apiError => '服务响应异常或响应较慢',
+              _ => '网络正常',
+            };
+            final latency = payment.requestLatency == null
+                ? '--'
+                : '${payment.requestLatency!.inMilliseconds} ms';
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                Theme.of(context).platform == TargetPlatform.iOS ? 24 : 0,
+                20,
+                28,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AppleSection(
+                    children: [
+                      AppleListRow(label: '在线状态', value: stateLabel),
+                      AppleListRow(label: '当前延迟', value: latency),
+                      AppleListRow(
+                        label: '离线付款码',
+                        verticalPadding: 4,
+                        trailing: Switch.adaptive(
+                          // The switch is the user's mode, not "an offline code happens
+                          // to be on screen". An unavailable grant only blocks turning
+                          // the mode on; turning it off remains available.
+                          value: manualOffline,
+                          onChanged: canToggleOffline
+                              ? (value) => Navigator.pop(sheetContext, value)
+                              : null,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  !canToggleOffline
-                      ? '没有可用的离线授权：请先开通或联网续期，之后才能使用离线码。'
-                      : manualOffline
-                      ? '离线模式：只用本机生成的付款码，本地即时刷新，不请求在线付款码。'
-                      : '开启后只用本机生成的离线码（每次刷新消耗一次授权次数）。关闭或重启 App 后会保留设置。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.gpColors.textSecondary),
-                ),
-              ],
-            ),
-          );
-        },
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    !canToggleOffline
+                        ? '没有可用的离线授权：请先开通或联网续期，之后才能使用离线码。'
+                        : manualOffline
+                        ? '离线模式：只用本机生成的付款码，本地即时刷新，不请求在线付款码。'
+                        : '开启后只用本机生成的离线码（每次刷新消耗一次授权次数）。关闭或重启 App 后会保留设置。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: context.gpColors.textSecondary),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
     if (selected != null && mounted) await _setOfflineMode(card, selected);
@@ -1232,7 +1250,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                                           'payment-code-pending-spinner',
                                                         ),
                                                       )
-                                                    : PaymentCodeQr(
+                                                    : _QrCode(
                                                         key: ValueKey(
                                                           offline
                                                               ? payload
@@ -1290,7 +1308,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                         ),
                                       )
                                     else
-                                      PaymentCodeCountdown(
+                                      _CodeCountdown(
                                         generation: payment.generation,
                                         active: active,
                                         style: TextStyle(
@@ -1391,8 +1409,161 @@ final class _ExpandedPaymentPass extends StatelessWidget {
   }
 }
 
+final class _CodeCountdown extends StatefulWidget {
+  const _CodeCountdown({
+    required this.generation,
+    required this.active,
+    required this.style,
+  });
+  final int generation;
+  final bool active;
+  final TextStyle style;
+
+  @override
+  State<_CodeCountdown> createState() => _CodeCountdownState();
+}
+
+class _CodeCountdownState extends State<_CodeCountdown> {
+  Timer? _timer;
+  int _remaining = 30;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void didUpdateWidget(_CodeCountdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.generation != widget.generation) {
+      _remaining = 30;
+      _startTimer();
+    } else if (oldWidget.active != widget.active) {
+      _startTimer();
+    }
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    if (!widget.active || _remaining <= 1) return;
+    final initial = _remaining;
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final next = (initial - timer.tick).clamp(1, 30);
+      setState(() => _remaining = next);
+      if (_remaining == 1) timer.cancel();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: double.infinity,
+        child: RepaintBoundary(
+          child: Text(
+            '$_remaining秒后刷新',
+            textAlign: TextAlign.center,
+            style: widget.style,
+          ),
+        ),
+      );
+}
+
 double _scaled(double width, double ratio, double minimum, double maximum) =>
     (width * ratio).clamp(minimum, maximum).toDouble();
+
+final class _QrCode extends StatefulWidget {
+  const _QrCode({
+    super.key,
+    required this.payload,
+    required this.binaryPayload,
+    required this.size,
+    required this.onTap,
+  });
+
+  final String payload;
+  final bool binaryPayload;
+  final double size;
+  final VoidCallback onTap;
+
+  @override
+  State<_QrCode> createState() => _QrCodeState();
+}
+
+class _QrCodeState extends State<_QrCode> {
+  late Widget _image;
+
+  @override
+  void initState() {
+    super.initState();
+    _image = _createImage();
+  }
+
+  @override
+  void didUpdateWidget(_QrCode oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.payload != widget.payload ||
+        oldWidget.binaryPayload != widget.binaryPayload) {
+      _image = _createImage();
+    }
+  }
+
+  Widget _createImage() => widget.binaryPayload
+      ? QrImageView.withQr(
+          qr: QrCode.fromUint8List(
+            data: Uint8List.fromList(latin1.encode(widget.payload)),
+            errorCorrectLevel: QrErrorCorrectLevel.L,
+          ),
+          padding: EdgeInsets.zero,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: GpTokens.campusRed,
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: GpTokens.campusRed,
+          ),
+          backgroundColor: GpTokens.cardCanvas,
+        )
+      : QrImageView(
+          data: widget.payload,
+          version: QrVersions.auto,
+          padding: EdgeInsets.zero,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: GpTokens.campusRed,
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: GpTokens.campusRed,
+          ),
+          backgroundColor: GpTokens.cardCanvas,
+        );
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '轻触二维码刷新',
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          key: const Key('payment-code-qr'),
+          width: widget.size,
+          height: widget.size,
+          color: GpTokens.cardCanvas,
+          padding: EdgeInsets.all(widget.size * 0.035),
+          child: _image,
+        ),
+      ),
+    );
+  }
+}
 
 final class _PaymentSuccess extends ConsumerWidget {
   const _PaymentSuccess({

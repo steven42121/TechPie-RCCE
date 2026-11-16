@@ -119,3 +119,8 @@ dist/
 /harmonyos_watch/build-profile.json5
 
 /outputs/
+
+# Local environment backups and Apple build overrides
+.envrc.*
+!.envrc.example
+pubspec_overrides.yaml

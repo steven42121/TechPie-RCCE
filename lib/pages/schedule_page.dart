@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:cupertino_native_better/cupertino_native_better.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
@@ -22,6 +24,7 @@ import '../utils/platform.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_feedback.dart';
+import '../widgets/adaptive_navigation_scaffold.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/adaptive_text_input_dialog.dart';
 import '../widgets/app_shell/app_shell_metrics.dart';
@@ -314,8 +317,9 @@ class _SchedulePageState extends State<SchedulePage> {
     final isInTerm = _schedule.isTodayInTerm;
 
     unawaited(
-      showModalBottomSheet<void>(
+      CNBottomSheet.show<void>(
         context: context,
+        useRootNavigator: true,
         showDragHandle: true,
         builder: (context) {
           final sheetTheme = Theme.of(context);
@@ -592,7 +596,7 @@ class _SchedulePageState extends State<SchedulePage> {
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
 
-    return Scaffold(
+    return AdaptiveNavigationScaffold(
       extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
       appBar: useIosChrome
           ? IosNativeNavigationBar(
@@ -823,6 +827,8 @@ class _SchedulePageState extends State<SchedulePage> {
               )
             : PageRefreshIndicator(
                 onRefresh: _refresh,
+                notificationPredicate: (notification) =>
+                    notification.metrics.axis == Axis.vertical && notification.depth <= 1,
                 child: useIosChrome
                     ? PageView.builder(
                         controller: _weekPageController,
@@ -1852,61 +1858,100 @@ class _CourseBlock extends StatelessWidget {
           children: [
             CourseDetailContent(course: course, compact: compact, padding: EdgeInsets.zero),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                TextButton.icon(
-                  onPressed: deleting
-                      ? null
-                      : () {
-                          close();
-                          onEditCustomCourse(course);
-                        },
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('编辑'),
-                ),
-                TextButton.icon(
-                  style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-                  onPressed: deleting
-                      ? null
-                      : () async {
-                          setPreviewState(() => deleting = true);
-                          try {
-                            final confirmed = await showAdaptiveAlertDialog<bool>(
-                              context: context,
-                              title: '删除这节课？',
-                              message: '将删除自定义课程“${course.name}”及其所有重复安排。',
-                              actions: const [
-                                AdaptiveAlertAction(label: '取消', value: false),
-                                AdaptiveAlertAction(label: '删除', value: true, isDestructive: true),
-                              ],
-                            );
-                            if (confirmed != true || !context.mounted) return;
-                            final existing = schedule.findCustomCourse(course.customId!);
-                            if (existing != null) {
-                              final semesterId = existing.semesterId.isEmpty
-                                  ? schedule.selectedSemesterId
-                                  : existing.semesterId;
-                              if (semesterId == null) return;
-                              await schedule.deleteCustomCourse(semesterId, existing.id);
-                            }
-                            if (context.mounted) close();
-                          } catch (_) {
-                            if (context.mounted) {
-                              showAdaptiveFeedback(
-                                context: context,
-                                message: '删除失败，请重试',
-                                style: AdaptiveFeedbackStyle.error,
-                              );
-                            }
-                          } finally {
-                            if (context.mounted) setPreviewState(() => deleting = false);
-                          }
-                        },
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('删除'),
-                ),
-              ],
+            Builder(
+              builder: (context) {
+                void edit() {
+                  close();
+                  onEditCustomCourse(course);
+                }
+
+                Future<void> delete() async {
+                  setPreviewState(() => deleting = true);
+                  try {
+                    final confirmed = await showAdaptiveAlertDialog<bool>(
+                      context: context,
+                      title: '删除这节课？',
+                      message: '将删除自定义课程“${course.name}”及其所有重复安排。',
+                      actions: const [
+                        AdaptiveAlertAction(label: '取消', value: false),
+                        AdaptiveAlertAction(label: '删除', value: true, isDestructive: true),
+                      ],
+                    );
+                    if (confirmed != true || !context.mounted) return;
+                    final existing = schedule.findCustomCourse(course.customId!);
+                    if (existing != null) {
+                      final semesterId = existing.semesterId.isEmpty
+                          ? schedule.selectedSemesterId
+                          : existing.semesterId;
+                      if (semesterId == null) return;
+                      await schedule.deleteCustomCourse(semesterId, existing.id);
+                    }
+                    if (context.mounted) close();
+                  } catch (_) {
+                    if (context.mounted) {
+                      showAdaptiveFeedback(
+                        context: context,
+                        message: '删除失败，请重试',
+                        style: AdaptiveFeedbackStyle.error,
+                      );
+                    }
+                  } finally {
+                    if (context.mounted) setPreviewState(() => deleting = false);
+                  }
+                }
+
+                if (isIos()) {
+                  // Plain system buttons with SF glyphs; delete in the
+                  // destructive red, as in Calendar's event detail.
+                  final red = CupertinoColors.systemRed.resolveFrom(context);
+                  return Row(
+                    children: [
+                      CupertinoButton(
+                        padding: const EdgeInsetsDirectional.only(end: 20),
+                        onPressed: deleting ? null : edit,
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(CupertinoIcons.pencil, size: 20),
+                            SizedBox(width: 6),
+                            Text('编辑'),
+                          ],
+                        ),
+                      ),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: deleting ? null : delete,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(CupertinoIcons.delete, size: 20, color: red),
+                            const SizedBox(width: 6),
+                            Text('删除', style: TextStyle(color: red)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton.icon(
+                      onPressed: deleting ? null : edit,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('编辑'),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                      ),
+                      onPressed: deleting ? null : delete,
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('删除'),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -1939,15 +1984,17 @@ class _CourseBlock extends StatelessWidget {
     }
 
     unawaited(
-      showModalBottomSheet<void>(
+      CNBottomSheet.show<void>(
         context: context,
-        showDragHandle: true,
+        useRootNavigator: true,
+        // A fixed-height sheet: iOS shows no grabber on one.
+        showDragHandle: !isIos(),
         builder: (context) {
           return _detailContent(
             context,
             schedule: schedule,
             close: () => Navigator.pop(context),
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+            padding: EdgeInsets.fromLTRB(24, isIos() ? 28 : 0, 24, 32),
           );
         },
       ),

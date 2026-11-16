@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -24,6 +25,7 @@ import '../utils/product_version.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_confirmation_button.dart';
+import '../widgets/adaptive_navigation_scaffold.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/adaptive_select.dart';
 import '../widgets/adaptive_switch.dart';
@@ -216,7 +218,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ? 0.0
         : adaptiveTopBarHeight() + MediaQuery.viewPaddingOf(context).top;
 
-    return Scaffold(
+    return AdaptiveNavigationScaffold(
       extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
       appBar: useIosChrome
           ? const IosNativeNavigationBar(
@@ -374,7 +376,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             const FeedbackEntry(),
             ListTile(
-              leading: const Icon(Icons.rate_review_outlined),
+              leading: const Icon(Icons.feedback_outlined),
               title: const Text('问题反馈 / 功能建议'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {
@@ -383,7 +385,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 await pushAdaptivePage<void>(
                   context,
                   builder: (_) => FeedbackPage(
-                    service: FeedbackService(auth, apiBaseUrl(storage)),
+                    service: FeedbackService(auth, apiBaseUrl(sp.storageService)),
                   ),
                 );
               },
@@ -438,13 +440,12 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 leading: Icon(themeService.mode.icon),
                 title: const Text('Theme'),
-                subtitle: Text(themeService.mode.label),
+                // The menu button shows the value; a subtitle would repeat it.
                 trailing: AdaptiveSelect(
                   value: themeService.mode.name,
                   placeholder: 'Choose theme',
                   accessibilityLabel: 'Theme',
-                  useIosNativeMenu: true,
-                  width: 156,
+                  shrinkWrap: true,
                   options: [
                     for (final mode in AppThemeMode.values)
                       AdaptiveSelectOption(
@@ -873,8 +874,9 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     unawaited(
-      showModalBottomSheet<void>(
+      CNBottomSheet.show<void>(
         context: context,
+        useRootNavigator: true,
         builder: (context) => SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -972,8 +974,9 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     unawaited(
-      showModalBottomSheet<void>(
+      CNBottomSheet.show<void>(
         context: context,
+        useRootNavigator: true,
         builder: (context) => SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,

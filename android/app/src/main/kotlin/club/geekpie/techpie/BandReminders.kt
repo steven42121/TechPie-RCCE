@@ -16,7 +16,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import club.geekpie.techpie.island.IslandAlarms
 import com.xiaomi.xms.wearable.Wearable
 import com.xiaomi.xms.wearable.service.OnServiceConnectionListener
 import org.json.JSONArray
@@ -502,7 +501,6 @@ class BandReminderBootReceiver : BroadcastReceiver() {
             Intent.ACTION_MY_PACKAGE_REPLACED,
             -> {
                 BandReminders.restore(context)
-                IslandAlarms.restore(context)
             }
         }
     }

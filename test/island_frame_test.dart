@@ -41,6 +41,43 @@ Assignment _deadline({
 }
 
 void main() {
+  test('deadlines have native events even without classes', () {
+    final now = DateTime(2026, 11, 15, 8);
+    final due = DateTime(2026, 11, 16, 12);
+    final timeline = buildIslandTimeline(
+      coursesForDay: (_) => [],
+      deadlines: [_deadline(title: 'Report', due: due)],
+      now: now,
+    );
+    expect(
+      timeline[due.subtract(deadlineLead).millisecondsSinceEpoch]?.title,
+      'Report',
+    );
+    expect(timeline.containsKey(due.millisecondsSinceEpoch), isTrue);
+    expect(timeline[due.millisecondsSinceEpoch], isNull);
+    expect(timeline.values.last, isNull);
+  });
+  test(
+    'next-day frames are computed from that day rather than the current week',
+    () {
+      final now = DateTime(2026, 11, 15, 20);
+      final timeline = buildIslandTimeline(
+        coursesForDay: (day) => day.day == 16
+            ? [_course(name: 'Monday only', start: '08:15', end: '09:55')]
+            : [],
+        deadlines: [],
+        now: now,
+      );
+      expect(
+        timeline[DateTime(2026, 11, 16, 8, 15).millisecondsSinceEpoch]?.title,
+        'Monday only',
+      );
+      expect(
+        timeline[DateTime(2026, 11, 16, 9, 55).millisecondsSinceEpoch],
+        isNull,
+      );
+    },
+  );
   final mondayMorning = DateTime(2026, 3, 9, 9, 30);
 
   test('a running class owns the island', () {
@@ -133,9 +170,7 @@ void main() {
   test('a deadline beyond the window is not shown', () {
     final frame = buildIslandFrame(
       dayCourses: const [],
-      upcomingDeadlines: [
-        _deadline(title: '期末', due: DateTime(2026, 3, 20)),
-      ],
+      upcomingDeadlines: [_deadline(title: '期末', due: DateTime(2026, 3, 20))],
       now: mondayMorning,
     );
 
@@ -149,10 +184,14 @@ void main() {
       now: mondayMorning,
     );
 
-    expect(
-      frame!.toJson().keys.toList(),
-      ['kind', 'title', 'statusLine', 'subTitle', 'detail', 'expiresAt'],
-    );
+    expect(frame!.toJson().keys.toList(), [
+      'kind',
+      'title',
+      'statusLine',
+      'subTitle',
+      'detail',
+      'expiresAt',
+    ]);
   });
 
   test('a running class expires when it ends', () {

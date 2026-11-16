@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import '../models/assignment.dart';
-import '../models/course.dart';
 import '../models/island_frame.dart';
 import '../utils/platform.dart';
 import '../utils/today_courses.dart';
@@ -182,7 +181,7 @@ final class IslandService {
   }
 
   Future<void> _onDataChanged() async {
-    await refreshNow();
+    await refreshNow(force: true);
     // A schedule/assignment load arrives as a burst of changes; rescheduling is
     // a full alarm rebuild, so let it settle first.
     _timelineDebounce?.cancel();
@@ -200,53 +199,10 @@ final class IslandService {
       await _invokeQuiet('cancelFrames');
       return;
     }
-    final now = DateTime.now();
-    final deadlines = _openDeadlines();
-    final byTime = <int, IslandFrame?>{};
-    for (var offset = 0; offset <= 2; offset++) {
-      final day = DateTime(now.year, now.month, now.day).add(
-        Duration(days: offset),
-      );
-      final courses = coursesOnDay(_schedule, _assignments, day);
-      for (final course in courses) {
-        final startMinutes = parseClockMinutes(course.startTime);
-        final endMinutes = parseClockMinutes(course.endTime);
-        if (startMinutes == null || endMinutes == null) continue;
-        final start = DateTime(
-          day.year,
-          day.month,
-          day.day,
-          startMinutes ~/ 60,
-          startMinutes % 60,
-        );
-        final end = DateTime(
-          day.year,
-          day.month,
-          day.day,
-          endMinutes ~/ 60,
-          endMinutes % 60,
-        );
-        for (final at in <DateTime>[
-          start.subtract(nextClassLead),
-          start.subtract(const Duration(minutes: 30)),
-          start.subtract(const Duration(minutes: 10)),
-          start,
-          end,
-        ]) {
-          if (!at.isAfter(now)) continue;
-          final frame = buildIslandFrame(
-            dayCourses: courses,
-            upcomingDeadlines: deadlines,
-            now: at,
-          );
-          final key = at.millisecondsSinceEpoch;
-          // A frame wins over a dismissal scheduled at the same moment.
-          if (byTime[key] == null || frame != null) byTime[key] = frame;
-        }
-      }
-    }
-    final events = byTime.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
+    final events = buildIslandTimeline(
+      coursesForDay: (day) => coursesOnDay(_schedule, _assignments, day),
+      deadlines: _openDeadlines(), now: DateTime.now(),
+    ).entries;
     final payload = [
       for (final entry in events)
         {'at': entry.key, 'frame': entry.value?.toJson()},

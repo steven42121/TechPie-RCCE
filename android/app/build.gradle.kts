@@ -127,9 +127,7 @@ android {
         applicationId = "club.geekpie.techpie"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // The HyperOS focus-notification library (island feature) requires API 27;
-        // Wear Engine 5.0.3.300 floors at API 23, so the island wins.
-        minSdk = maxOf(flutter.minSdkVersion, 27)
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = appVersionName

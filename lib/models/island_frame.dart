@@ -28,13 +28,13 @@ class IslandFrame {
   final DateTime? expiresAt;
 
   Map<String, Object?> toJson() => {
-        'kind': kind,
-        'title': title,
-        'statusLine': statusLine,
-        'subTitle': subTitle,
-        'detail': detail,
-        'expiresAt': expiresAt?.millisecondsSinceEpoch,
-      };
+    'kind': kind,
+    'title': title,
+    'statusLine': statusLine,
+    'subTitle': subTitle,
+    'detail': detail,
+    'expiresAt': expiresAt?.millisecondsSinceEpoch,
+  };
 
   @override
   String toString() => 'IslandFrame($kind, $title, $statusLine)';
@@ -128,7 +128,7 @@ Assignment? _nearestDeadline(
   Assignment? best;
   for (final assignment in deadlines) {
     final left = assignment.due.difference(now);
-    if (left.isNegative || left > window) continue;
+    if (left <= Duration.zero || left > window) continue;
     if (best == null || assignment.due.isBefore(best.due)) best = assignment;
   }
   return best;
@@ -154,3 +154,48 @@ DateTime _clockOn(DateTime now, int minutes) =>
 
 String _clock(DateTime value) =>
     '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+/// Event-driven snapshots for the next three days, including days without a
+/// class. Each event is evaluated with the courses for its own calendar date.
+Map<int, IslandFrame?> buildIslandTimeline({
+  required List<Course> Function(DateTime day) coursesForDay,
+  required List<Assignment> deadlines,
+  required DateTime now,
+}) {
+  final horizon = DateTime(now.year, now.month, now.day + 3);
+  final events = <DateTime>{horizon};
+  void add(DateTime value) {
+    if (value.isAfter(now) && !value.isAfter(horizon)) events.add(value);
+  }
+
+  for (var offset = 0; offset < 3; offset++) {
+    final day = DateTime(now.year, now.month, now.day + offset);
+    add(day);
+    for (final course in coursesForDay(day)) {
+      final startMinutes = parseClockMinutes(course.startTime);
+      final endMinutes = parseClockMinutes(course.endTime);
+      if (startMinutes == null || endMinutes == null) continue;
+      final start = _clockOn(day, startMinutes);
+      add(start.subtract(nextClassLead));
+      add(start.subtract(const Duration(minutes: 30)));
+      add(start.subtract(const Duration(minutes: 10)));
+      add(start);
+      add(_clockOn(day, endMinutes));
+    }
+  }
+  for (final deadline in deadlines) {
+    add(deadline.due.subtract(deadlineLead));
+    add(deadline.due);
+  }
+  final ordered = events.toList()..sort();
+  return {
+    for (final at in ordered)
+      at.millisecondsSinceEpoch: at == horizon
+          ? null
+          : buildIslandFrame(
+              dayCourses: coursesForDay(at),
+              upcomingDeadlines: deadlines,
+              now: at,
+            ),
+  };
+}

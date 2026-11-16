@@ -1,6 +1,9 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- Focus SDK is invoked only on API 27+; earlier Android uses plain notifications. -->
+    <uses-sdk tools:overrideLibrary="com.xzakota.hyper.notification.focus"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.READ_CALENDAR"/>
     <uses-permission android:name="android.permission.WRITE_CALENDAR"/>
@@ -91,6 +94,12 @@
                 android:value="Holds the schedule island and band reminders live while the user keeps the app resident" />
         </service>
         <receiver android:name=".BandReminderReceiver" android:exported="false"/>
+        <receiver android:name=".island.IslandRestoreReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
         <receiver android:name=".island.IslandFrameReceiver" android:exported="false"/>
         <receiver android:name=".BandReminderBootReceiver" android:exported="false">
             <intent-filter>

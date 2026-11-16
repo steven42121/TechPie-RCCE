@@ -64,6 +64,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Node for release ledger checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Decide what to do
         id: decide
         shell: bash
@@ -74,6 +79,8 @@ jobs:
           DESKTOP_REQUESTED: ${{ inputs.desktop_builds }}
         run: |
           set -euo pipefail
+
+          node scripts/release-plan.mjs --rcce-auto
 
           declared="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml)"
           if [[ ! "$declared" =~ ^([0-9]{2})\.([12])\.([0-9]{6})\+([0-9]+)$ ]]; then

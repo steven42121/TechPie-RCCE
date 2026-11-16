@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keepalive_channel_name">バックグラウンドで実行</string>
+    <string name="keepalive_channel_desc">授業とウェアラブルの通知のためにアプリを実行し続けます</string>
+    <string name="keepalive_notification_title">TechPie は実行中です</string>
+    <string name="keepalive_notification_text">授業とウェアラブルの通知が有効です</string>
+</resources>
