@@ -21,8 +21,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final now = DateTime.utc(2026, 10, 12);
   const channel = MethodChannel('test/deadline_widgets');
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   late AssignmentService assignments;
   late DeadlineWidgetService service;
   late List<MethodCall> calls;
@@ -53,15 +52,13 @@ void main() {
         due: now.subtract(const Duration(seconds: 1)),
       ).toJson(),
     ]);
-    assignments = AssignmentService(storage, http, auth, thirdParty, schedule)
-      ..loadCached();
+    assignments = AssignmentService(storage, http, auth, thirdParty, schedule)..loadCached();
     calls = [];
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       return false;
     });
-    service =
-        DeadlineWidgetService(assignments, channel: channel, now: () => now);
+    service = DeadlineWidgetService(assignments, channel: channel, now: () => now);
     addTearDown(() {
       service.dispose();
       assignments.dispose();
@@ -73,8 +70,7 @@ void main() {
     });
   });
 
-  test('cached publication excludes private fields and past deadlines',
-      () async {
+  test('cached publication excludes private fields and past deadlines', () async {
     service.initialize();
     await service.flush();
     final payload = jsonDecode(
@@ -94,19 +90,34 @@ void main() {
     expect(calls.where((c) => c.method == 'publish'), hasLength(1));
   });
 
-  test('completion and hidden overrides immediately update the snapshot',
-      () async {
+  test('completion and hidden overrides immediately update the snapshot', () async {
     service.initialize();
     await service.flush();
     await assignments.setCompleted(assignments.assignments[1], true);
     await service.flush();
     await assignments.hide(assignments.assignments[2]);
     await service.flush();
-    final items =
-        (jsonDecode(calls.last.arguments as String) as Map)['items'] as List;
+    final items = (jsonDecode(calls.last.arguments as String) as Map)['items'] as List;
     expect(items, hasLength(8));
     expect(items.map((e) => e['id']), isNot(contains('synthetic:0')));
     expect(items.map((e) => e['id']), isNot(contains('synthetic:1')));
+  });
+
+  test('publishes a custom deadline with no fetched cache', () async {
+    await assignments.clearCache();
+    service.initialize();
+    await assignments.saveCustomDeadline(
+      owner: null,
+      title: 'Personal deadline',
+      due: now.add(const Duration(hours: 4)),
+      notes: 'Private notes',
+    );
+    await service.flush();
+    final payload = jsonDecode(calls.last.arguments as String) as Map;
+    final item = (payload['items'] as List).single as Map;
+    expect(item['title'], 'Personal deadline');
+    expect(item['kind'], 'assignment');
+    expect(calls.last.arguments, isNot(contains('Private notes')));
   });
 
   test('clearing identity invalidates queued old publications', () async {
@@ -128,8 +139,7 @@ void main() {
     expect((jsonDecode(calls.last.arguments as String) as Map)['items'], isEmpty);
   });
 
-  testWidgets('cold and warm taps wait for navigation and reuse the handler',
-      (tester) async {
+  testWidgets('cold and warm taps wait for navigation and reuse the handler', (tester) async {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       return call.method == 'consumePendingRoute';
@@ -144,8 +154,7 @@ void main() {
     expect(opened, 1);
     await messenger.handlePlatformMessage(
       channel.name,
-      const StandardMethodCodec()
-          .encodeMethodCall(const MethodCall('openDeadlines')),
+      const StandardMethodCodec().encodeMethodCall(const MethodCall('openDeadlines')),
       (_) {},
     );
     expect(opened, 2);

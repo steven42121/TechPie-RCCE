@@ -74,13 +74,14 @@ class DeadlineWidgetService with WidgetsBindingObserver {
       if (utf8.encode(id).length > 4096 || !ids.add(id) || due < 0 || due > 253402300799) continue;
       final row = <String, Object>{
         'id': id,
-        'kind': a.kind.id,
+        'kind': a is CustomDeadline ? DeadlineKind.assignment.id : a.kind.id,
         'title': String.fromCharCodes(a.title.runes.take(256)),
         'subtitle': String.fromCharCodes(
           switch (a) {
             ExamAssignment(:final location) => location.trim().runes,
             _ => a.course.runes,
-          }.take(128),
+          }
+              .take(128),
         ),
         'dueAt': due,
       };
@@ -100,16 +101,16 @@ class DeadlineWidgetService with WidgetsBindingObserver {
     // Publish an empty valid snapshot as soon as sharing is enabled. This
     // keeps the desktop card truthful before the first sync.
     final ready = _enabled;
-    final items = _assignments.hasCachedData ? displayItems(
-      _assignments.visibleAssignments,
-      _assignments.isCompleted,
-      _now(),
-    ) : <Map<String, Object>>[];
+    final items = _assignments.hasCachedData
+        ? displayItems(
+            _assignments.visibleAssignments,
+            _assignments.isCompleted,
+            _now(),
+          )
+        : <Map<String, Object>>[];
     final content = ready ? jsonEncode(items) : null;
     _writes = _writes.then((_) async {
-      if (_disposed ||
-          epoch != _assignments.identityEpoch ||
-          ready != _enabled) {
+      if (_disposed || epoch != _assignments.identityEpoch || ready != _enabled) {
         return;
       }
       if (_lastPublished == content && content != null) return;

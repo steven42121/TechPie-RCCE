@@ -95,7 +95,7 @@ class LoggingHttpClient {
           'bindingUserList',
           'xkjgList',
           'ntkmdList',
-          'rqpkjgallList'
+          'rqpkjgallList',
         ]) {
           if (value[key] is List) summary['${key}Count'] = (value[key] as List<dynamic>).length;
         }

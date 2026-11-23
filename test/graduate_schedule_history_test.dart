@@ -46,7 +46,7 @@ void main() {
     expect(courses, hasLength(4));
     final early = courses.singleWhere((c) => c.classroom == '甲教室');
     expect(early.times, {
-      5: [1, 2]
+      5: [1, 2],
     });
     expect(early.isActiveInWeek(3), isTrue);
     expect(early.isActiveInWeek(4), isFalse);
@@ -55,7 +55,7 @@ void main() {
     expect(courses.singleWhere((c) => c.classroom == '乙教室').weeksText, '13-16周');
     final sunday = courses.singleWhere((c) => c.classroom == '丁教室');
     expect(sunday.times, {
-      7: [1]
+      7: [1],
     });
     expect(sunday.weeksText, '4周');
     expect(schedule.unarrangedFor(semester).single['KCDM'], 'H3');

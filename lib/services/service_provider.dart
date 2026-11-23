@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'assignment_service.dart';
 import 'auth_service.dart';
 import 'campus_card_service.dart';
+import 'deadline_reminder_service.dart';
 import 'deadline_widget_service.dart';
 import 'debug_logger.dart';
 import 'ecard_bind_service.dart';
@@ -46,7 +47,7 @@ class ServiceProvider extends InheritedWidget {
   final GlanceSettings? glanceSettings;
   final WearEngineService? wearEngineService;
   final DeadlineWidgetService? deadlineWidgetService;
-
+  final DeadlineReminderService? deadlineReminderService;
   const ServiceProvider({
     super.key,
     required this.authService,
@@ -71,12 +72,12 @@ class ServiceProvider extends InheritedWidget {
     this.glanceSettings,
     this.wearEngineService,
     this.deadlineWidgetService,
+    this.deadlineReminderService,
     required super.child,
   });
 
   static ServiceProvider of(BuildContext context) {
-    final result =
-        context.dependOnInheritedWidgetOfExactType<ServiceProvider>();
+    final result = context.dependOnInheritedWidgetOfExactType<ServiceProvider>();
     assert(result != null, 'No ServiceProvider found in context');
     return result!;
   }
@@ -104,5 +105,6 @@ class ServiceProvider extends InheritedWidget {
       screenFormFactorService != oldWidget.screenFormFactorService ||
       glanceSettings != oldWidget.glanceSettings ||
       wearEngineService != oldWidget.wearEngineService ||
-      deadlineWidgetService != oldWidget.deadlineWidgetService;
+      deadlineWidgetService != oldWidget.deadlineWidgetService ||
+      deadlineReminderService != oldWidget.deadlineReminderService;
 }

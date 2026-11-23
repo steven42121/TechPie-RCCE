@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cupertino_native_better/cupertino_native_better.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +11,7 @@ import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/main.dart';
 import 'package:techpie/models/assignment.dart';
 import 'package:techpie/pages/assignments_page.dart';
+import 'package:techpie/pages/custom_deadline_editor_page.dart';
 import 'package:techpie/pages/hidden_assignments_page.dart';
 import 'package:techpie/pages/settings_page.dart';
 import 'package:techpie/services/assignment_service.dart';
@@ -28,8 +30,10 @@ import 'package:techpie/services/theme_service.dart';
 import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
 import 'package:techpie/services/update_service.dart';
+import 'package:techpie/widgets/adaptive_navigation_scaffold.dart';
 import 'package:techpie/widgets/adaptive_page_navigation.dart';
 import 'package:techpie/widgets/ios/ios_native_navigation_bar.dart';
+import 'package:techpie/widgets/schedule_picker_sheet.dart';
 
 /// On iOS the tab bar is the app's top level: a page pushed from a tab stays
 /// inside that tab, under the bar, so another tab is always one tap away and
@@ -97,6 +101,64 @@ void main() {
       tester.widget<CNTabBar>(find.byType(CNTabBar)).onTap(index);
 
   testWidgets(
+    'a guest can add a deadline and edit it from Home',
+    (tester) async {
+      await pumpApp(tester);
+      selectTab(tester, 2);
+      await tester.pumpAndSettle();
+      final menuBar = tester
+          .widget<AdaptiveNavigationScaffold>(
+            find.byType(AdaptiveNavigationScaffold),
+          )
+          .appBar as IosNativeNavigationBar;
+      final more = menuBar.trailingItems.single;
+      expect(
+        more.menuItems.expand((item) => item.children).map((item) => item.title),
+        contains('添加 Deadline'),
+      );
+      menuBar.onMenuSelected!(more.id, 'addDeadline');
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText).first, 'Submit report');
+      await tester.tap(find.text('截止日期'));
+      await tester.pumpAndSettle();
+      tester
+          .widget<CupertinoDatePicker>(find.byType(CupertinoDatePicker))
+          .onDateTimeChanged(DateTime.now().add(const Duration(days: 2)));
+      tester.widget<IosSheetHeader>(find.byType(IosSheetHeader)).onConfirm!();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('截止时间'));
+      await tester.pumpAndSettle();
+      tester.widget<IosSheetHeader>(find.byType(IosSheetHeader)).onConfirm!();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(find.text('自定义'), findsOneWidget);
+
+      selectTab(tester, 0);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Submit report'),
+        300,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.tap(find.text('Submit report'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CustomDeadlineEditorPage), findsOneWidget);
+      await tester.ensureVisible(find.text('标记完成'));
+      await tester.tap(find.text('标记完成'));
+      await tester.pumpAndSettle();
+      expect(assignmentService.visibleAssignments.single.submitted, isTrue);
+      expect(find.text('取消完成'), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
     'ignored items can scroll above the tab bar and the selection toolbar',
     (tester) async {
       await pumpApp(tester);
@@ -104,8 +166,8 @@ void main() {
       await tester.pumpAndSettle();
       final context = tester.element(find.byType(SettingsPage));
       ServiceProvider.of(context).assignmentService.overrides.hidden.addAll(
-        List.generate(30, (index) => 'hidden-$index'),
-      );
+            List.generate(30, (index) => 'hidden-$index'),
+          );
       unawaited(
         pushAdaptivePage<void>(
           context,
@@ -125,9 +187,11 @@ void main() {
       );
       expect(tester.getBottomLeft(lastRow).dy, lessThanOrEqualTo(874 - 49));
 
-      tester.widget<IosNativeNavigationBar>(
-        find.byType(IosNativeNavigationBar),
-      ).onItemPressed!('select');
+      tester
+          .widget<IosNativeNavigationBar>(
+            find.byType(IosNativeNavigationBar),
+          )
+          .onItemPressed!('select');
       await tester.pumpAndSettle();
       expect(tester.widget<ListView>(list).padding, EdgeInsets.zero);
       await tester.drag(list, const Offset(0, -400));
@@ -139,9 +203,11 @@ void main() {
         tester.getBottomLeft(lastRow).dy,
         lessThanOrEqualTo(tester.getTopLeft(restore).dy),
       );
-      tester.widget<IosNativeNavigationBar>(
-        find.byType(IosNativeNavigationBar),
-      ).onItemPressed!('done');
+      tester
+          .widget<IosNativeNavigationBar>(
+            find.byType(IosNativeNavigationBar),
+          )
+          .onItemPressed!('done');
       await tester.pumpAndSettle();
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 500));

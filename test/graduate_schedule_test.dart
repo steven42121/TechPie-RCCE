@@ -329,12 +329,12 @@ void main() {
         'bjdm': 'g1',
         'kssj': '0815',
         'jssj': '0955',
-        'rqs': ['2026-09-07', '2026-09-08']
+        'rqs': ['2026-09-07', '2026-09-08'],
       },
     ];
     for (final rows in [
       [explicit, recurring],
-      [recurring, explicit]
+      [recurring, explicit],
     ]) {
       final courses = GraduateSchedule.fromJson({...raw, 'results': rows})
           .tableFor(semester, 'A', firstMonday: DateTime(2026, 9, 7))
@@ -1008,7 +1008,7 @@ void main() {
       h.overrides['exam_table'] = http.Response(
         jsonEncode({
           'success': true,
-          'data': {'exams': <Object>[]}
+          'data': {'exams': <Object>[]},
         }),
         200,
       );
@@ -1057,7 +1057,7 @@ void main() {
     h.overrides['exam_table'] = http.Response(
       jsonEncode({
         'success': true,
-        'data': {'exams': <Object>[]}
+        'data': {'exams': <Object>[]},
       }),
       200,
     );
@@ -1069,7 +1069,7 @@ void main() {
     h.overrides['getUserConf'] = http.Response(
       jsonEncode({
         'code': '0',
-        'datas': {'uid': 'different-account', 'categoryName': '学生/本科生'}
+        'datas': {'uid': 'different-account', 'categoryName': '学生/本科生'},
       }),
       200,
       headers: {'content-type': 'application/json; charset=utf-8'},
@@ -1208,7 +1208,7 @@ void main() {
       h.overrides['getUserConf'] = http.Response(
         jsonEncode({
           'code': '0',
-          'datas': {'uid': '20260002', 'categoryName': '学生/硕士生'}
+          'datas': {'uid': '20260002', 'categoryName': '学生/硕士生'},
         }),
         200,
         headers: {'content-type': 'application/json; charset=utf-8'},
@@ -1216,7 +1216,7 @@ void main() {
       h.overrides['exam_table'] = http.Response(
         jsonEncode({
           'success': true,
-          'data': {'exams': <Object>[]}
+          'data': {'exams': <Object>[]},
         }),
         200,
       );
@@ -1250,7 +1250,7 @@ void main() {
     h.overrides['getUserConf'] = http.Response(
       jsonEncode({
         'code': '0',
-        'datas': {'uid': '20260002', 'categoryName': '学生/硕士生'}
+        'datas': {'uid': '20260002', 'categoryName': '学生/硕士生'},
       }),
       200,
       headers: {'content-type': 'application/json; charset=utf-8'},
@@ -1258,7 +1258,7 @@ void main() {
     h.overrides['exam_table'] = http.Response(
       jsonEncode({
         'success': true,
-        'data': {'exams': <Object>[]}
+        'data': {'exams': <Object>[]},
       }),
       200,
     );

@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage_ohos/flutter_secure_storage_ohos.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/assignment.dart';
 import '../models/assignment_overrides.dart';
 import '../models/campus_identity.dart';
 import '../models/course_table.dart';
@@ -70,8 +71,9 @@ class StorageService {
   }
 
   Future<void> saveIdsCandidate(String account, IdsPasskey credential) => _secure.write(
-      key: 'third_party_ids_pending',
-      value: jsonEncode({'account': account, 'credential': credential.toJson()}));
+        key: 'third_party_ids_pending',
+        value: jsonEncode({'account': account, 'credential': credential.toJson()}),
+      );
 
   Future<({String account, IdsPasskey credential})?> loadIdsCandidate() async {
     final value = await _secure.read(key: 'third_party_ids_pending');
@@ -92,7 +94,9 @@ class StorageService {
           .map((entry) => SyncTombstone.fromJson((entry as Map).cast<String, dynamic>()))
           .toList();
   Future<void> saveThirdPartyTombstones(List<SyncTombstone> tombstones) => _prefs.setString(
-      'third_party_tombstones', jsonEncode(tombstones.map((t) => t.toJson()).toList()));
+        'third_party_tombstones',
+        jsonEncode(tombstones.map((t) => t.toJson()).toList()),
+      );
 
   // Secure third-party account storage (one secure key per platform)
   static const _thirdPartyKeyPrefix = 'third_party_';
@@ -592,11 +596,66 @@ class StorageService {
 
   Future<void> clearCachedAssignments() => _prefs.remove(_assignmentsKey);
 
+  static String _customDeadlinesKey(String? owner) => owner == null
+      ? 'custom_deadlines_guest'
+      : 'custom_deadlines_account_${Uri.encodeComponent(owner)}';
+
+  Future<void> saveCustomDeadlines(
+    String? owner,
+    Iterable<CustomDeadline> deadlines,
+    Map<String, DeadlineReminderChange> reminderChanges,
+  ) async {
+    final items = deadlines.map((deadline) => deadline.toJson()).toList();
+    final saved = await _prefs.setString(
+      _customDeadlinesKey(owner),
+      jsonEncode(
+        reminderChanges.isEmpty
+            ? items
+            : {
+                'deadlines': items,
+                'reminderChanges': reminderChanges.map((key, change) => MapEntry(key, change.name)),
+              },
+      ),
+    );
+    if (!saved) throw StateError('Could not save custom deadlines');
+  }
+
+  ({
+    Map<String, CustomDeadline> deadlines,
+    Map<String, DeadlineReminderChange> reminderChanges,
+  })? loadCustomDeadlines(String? owner) {
+    final raw = _prefs.getString(_customDeadlinesKey(owner));
+    if (raw == null) return null;
+    final deadlines = <String, CustomDeadline>{};
+    var reminderChanges = <String, DeadlineReminderChange>{};
+    try {
+      final decoded = jsonDecode(raw);
+      final items = (decoded is Map ? decoded['deadlines'] : decoded) as List<dynamic>;
+      if (decoded is Map) {
+        reminderChanges = DeadlineReminderChange.decode(decoded['reminderChanges']);
+      }
+      for (final item in items.whereType<Map<String, dynamic>>()) {
+        try {
+          final deadline = CustomDeadline.fromJson(item);
+          deadlines[deadline.id] = deadline;
+        } catch (_) {
+          debugPrint('Skipping invalid custom deadline');
+        }
+      }
+    } catch (_) {
+      debugPrint('Could not read custom deadlines');
+    }
+    return (deadlines: deadlines, reminderChanges: reminderChanges);
+  }
+
   // Local user overrides on assignments (completion flips + hidden ids).
   static const _assignmentOverridesKey = 'assignment_overrides';
 
-  Future<void> saveAssignmentOverrides(AssignmentOverrides ov) =>
-      _prefs.setString(_assignmentOverridesKey, jsonEncode(ov.toJson()));
+  Future<void> saveAssignmentOverrides(AssignmentOverrides ov) async {
+    if (!await _prefs.setString(_assignmentOverridesKey, jsonEncode(ov.toJson()))) {
+      throw StateError('Could not save assignment overrides');
+    }
+  }
 
   AssignmentOverrides loadAssignmentOverrides() {
     final raw = _prefs.getString(_assignmentOverridesKey);

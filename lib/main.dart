@@ -16,6 +16,7 @@ import 'services/auth_service.dart';
 import 'services/background_refresher.dart';
 import 'services/band_service.dart';
 import 'services/campus_card_service.dart';
+import 'services/deadline_reminder_service.dart';
 import 'services/deadline_widget_service.dart';
 import 'services/debug_logger.dart';
 import 'services/ecard_bind_service.dart';
@@ -124,12 +125,16 @@ Future<void> _realMain(SharedPreferences prefs) async {
     storageService,
     thirdPartyAuthService,
   );
+  final isApple = !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS);
   final assignmentService = AssignmentService(
     storageService,
     httpClient,
     authService,
     thirdPartyAuthService,
     scheduleService,
+    syncReminders: isApple,
   );
   final wearEngineService = isAndroid()
       ? WearEngineService(
@@ -152,6 +157,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
           enabled: storageService.deadlineWidgetsEnabled,
         )
       : null;
+  final deadlineReminderService = isApple ? DeadlineReminderService(assignmentService) : null;
   final syncService = SyncService(
     authService,
     thirdPartyAuthService,
@@ -252,6 +258,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       glanceSettings: glanceSettings,
       wearEngineService: wearEngineService,
       deadlineWidgetService: deadlineWidgetService,
+      deadlineReminderService: deadlineReminderService,
     ),
   );
 
@@ -421,6 +428,7 @@ class TechPieApp extends StatefulWidget {
   final GlanceSettings? glanceSettings;
   final WearEngineService? wearEngineService;
   final DeadlineWidgetService? deadlineWidgetService;
+  final DeadlineReminderService? deadlineReminderService;
 
   const TechPieApp({
     super.key,
@@ -446,6 +454,7 @@ class TechPieApp extends StatefulWidget {
     this.glanceSettings,
     this.wearEngineService,
     this.deadlineWidgetService,
+    this.deadlineReminderService,
   });
 
   @override
@@ -471,6 +480,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     unawaited(_checkForUpdatesQuietly());
     widget.ecardWidgetService?.setOpenPayHandler(_openEcardPayCode);
     widget.deadlineWidgetService?.setOpenHandler(_openDeadlines);
+    widget.deadlineReminderService?.initialize();
   }
 
   @override
@@ -479,6 +489,10 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     if (oldWidget.deadlineWidgetService != widget.deadlineWidgetService) {
       oldWidget.deadlineWidgetService?.clearOpenHandler();
       widget.deadlineWidgetService?.setOpenHandler(_openDeadlines);
+    }
+    if (oldWidget.deadlineReminderService != widget.deadlineReminderService) {
+      oldWidget.deadlineReminderService?.dispose();
+      widget.deadlineReminderService?.initialize();
     }
     if (oldWidget.ecardWidgetService == widget.ecardWidgetService) return;
     oldWidget.ecardWidgetService?.clearOpenPayHandler();
@@ -490,6 +504,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     widget.ecardWidgetService?.clearOpenPayHandler();
     widget.deadlineWidgetService?.dispose();
+    widget.deadlineReminderService?.dispose();
     widget.campusCardService.dispose();
     widget.wearEngineService?.dispose();
     super.dispose();
@@ -593,6 +608,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         glanceSettings: widget.glanceSettings,
         wearEngineService: widget.wearEngineService,
         deadlineWidgetService: widget.deadlineWidgetService,
+        deadlineReminderService: widget.deadlineReminderService,
         child: _buildBanner(
           MaterialApp(
             navigatorKey: _navigatorKey,

@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import '../utils/platform.dart';
 import 'app_shell/tg_bottom_nav_bar.dart';
 
-final GlobalKey<ScaffoldMessengerState> rootMessengerKey =
-    GlobalKey<ScaffoldMessengerState>();
+final GlobalKey<ScaffoldMessengerState> rootMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 final GlobalKey<AdaptiveFeedbackHostState> adaptiveFeedbackHostKey =
     GlobalKey<AdaptiveFeedbackHostState>();
@@ -134,6 +133,12 @@ class AdaptiveFeedbackHostState extends State<AdaptiveFeedbackHost>
     );
   }
 
+  void _runAction(_FeedbackEntry entry) {
+    if (!identical(_entry, entry) || _dismissTimer == null) return;
+    entry.onAction?.call();
+    if (identical(_entry, entry)) dismiss();
+  }
+
   @override
   void dispose() {
     _dismissTimer?.cancel();
@@ -158,9 +163,8 @@ class AdaptiveFeedbackHostState extends State<AdaptiveFeedbackHost>
                 // longer depends on window width — only whether a full-screen
                 // page currently covers it (depth > 1).
                 final navVisible = depth <= 1;
-                final navClearance = isIos()
-                    ? 52.0 + 12
-                    : TgBottomNavBar.barHeight + 2 * TgBottomNavBar.margin;
+                final navClearance =
+                    isIos() ? 52.0 + 12 : TgBottomNavBar.barHeight + 2 * TgBottomNavBar.margin;
                 final bottom = safeBottom + (navVisible ? navClearance : 12);
                 return IgnorePointer(
                   ignoring: _entry!.actionLabel == null,
@@ -243,17 +247,13 @@ class _FeedbackBanner extends StatelessWidget {
           Flexible(
             child: Text(
               entry.message,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: style.foregroundColor),
+              style: theme.textTheme.bodyMedium?.copyWith(color: style.foregroundColor),
             ),
           ),
           if (entry.actionLabel != null) ...[
             const SizedBox(width: 8),
             TextButton(
-              onPressed: () {
-                entry.onAction?.call();
-                adaptiveFeedbackHostKey.currentState?.dismiss();
-              },
+              onPressed: () => adaptiveFeedbackHostKey.currentState?._runAction(entry),
               child: Text(entry.actionLabel!),
             ),
           ],
