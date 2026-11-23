@@ -12,8 +12,10 @@ import 'package:flutter_secure_storage_ohos/flutter_secure_storage_ohos.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/assignment_overrides.dart';
+import '../models/campus_identity.dart';
 import '../models/course_table.dart';
 import '../models/custom_course.dart';
+import '../models/graduate_schedule.dart';
 import '../models/ids_passkey.dart';
 import '../models/oa_gym.dart';
 import '../models/renew_status.dart';
@@ -67,14 +69,18 @@ class StorageService {
     await _secure.delete(key: _sessionKey);
   }
 
-  Future<void> saveIdsCandidate(String account, IdsPasskey credential) =>
-      _secure.write(key: 'third_party_ids_pending', value: jsonEncode({'account': account, 'credential': credential.toJson()}));
+  Future<void> saveIdsCandidate(String account, IdsPasskey credential) => _secure.write(
+      key: 'third_party_ids_pending',
+      value: jsonEncode({'account': account, 'credential': credential.toJson()}));
 
   Future<({String account, IdsPasskey credential})?> loadIdsCandidate() async {
     final value = await _secure.read(key: 'third_party_ids_pending');
     if (value == null) return null;
     final json = jsonDecode(value) as Map<String, dynamic>;
-    return (account: json['account'] as String, credential: IdsPasskey.fromJson((json['credential'] as Map).cast<String, dynamic>()));
+    return (
+      account: json['account'] as String,
+      credential: IdsPasskey.fromJson((json['credential'] as Map).cast<String, dynamic>())
+    );
   }
 
   Future<void> clearIdsCandidate() => _secure.delete(key: 'third_party_ids_pending');
@@ -83,9 +89,10 @@ class StorageService {
 
   List<SyncTombstone> loadThirdPartyTombstones() =>
       (jsonDecode(_prefs.getString('third_party_tombstones') ?? '[]') as List)
-          .map((entry) => SyncTombstone.fromJson((entry as Map).cast<String, dynamic>())).toList();
-  Future<void> saveThirdPartyTombstones(List<SyncTombstone> tombstones) =>
-      _prefs.setString('third_party_tombstones', jsonEncode(tombstones.map((t) => t.toJson()).toList()));
+          .map((entry) => SyncTombstone.fromJson((entry as Map).cast<String, dynamic>()))
+          .toList();
+  Future<void> saveThirdPartyTombstones(List<SyncTombstone> tombstones) => _prefs.setString(
+      'third_party_tombstones', jsonEncode(tombstones.map((t) => t.toJson()).toList()));
 
   // Secure third-party account storage (one secure key per platform)
   static const _thirdPartyKeyPrefix = 'third_party_';
@@ -220,8 +227,7 @@ class StorageService {
   }
 
   // SharedPreferences for non-sensitive data
-  bool get debugMode =>
-      !kReleaseMode && (_prefs.getBool(_debugModeKey) ?? false);
+  bool get debugMode => !kReleaseMode && (_prefs.getBool(_debugModeKey) ?? false);
   Future<void> setDebugMode(bool value) => _prefs.setBool(_debugModeKey, value);
 
   bool get debugForceIdsRebindBanner =>
@@ -246,25 +252,21 @@ class StorageService {
   Future<void> setGlassMode(String mode) => _prefs.setString(_glassModeKey, mode);
 
   bool get maskPersonalInfo => _prefs.getBool(_maskPersonalInfoKey) ?? true;
-  Future<void> setMaskPersonalInfo(bool value) =>
-      _prefs.setBool(_maskPersonalInfoKey, value);
+  Future<void> setMaskPersonalInfo(bool value) => _prefs.setBool(_maskPersonalInfoKey, value);
 
   /// Opt-in: the island is a persistent notification, so it is off until the
   /// user asks for it.
   bool get islandEnabled => _prefs.getBool(_islandEnabledKey) ?? false;
-  Future<void> setIslandEnabled(bool value) =>
-      _prefs.setBool(_islandEnabledKey, value);
+  Future<void> setIslandEnabled(bool value) => _prefs.setBool(_islandEnabledKey, value);
 
   /// 保活: a resident process that keeps the island and band reminders live.
   /// Off by default — it shows a persistent notification and costs battery.
   bool get keepAliveEnabled => _prefs.getBool(_keepAliveEnabledKey) ?? false;
-  Future<void> setKeepAliveEnabled(bool value) =>
-      _prefs.setBool(_keepAliveEnabledKey, value);
+  Future<void> setKeepAliveEnabled(bool value) => _prefs.setBool(_keepAliveEnabledKey, value);
 
   /// A receipt is expected news rather than an interruption, so this is on by
   /// default and the user turns it off if they disagree.
-  bool get spendingAlertsEnabled =>
-      _prefs.getBool(_spendingAlertsEnabledKey) ?? true;
+  bool get spendingAlertsEnabled => _prefs.getBool(_spendingAlertsEnabledKey) ?? true;
   Future<void> setSpendingAlertsEnabled(bool value) =>
       _prefs.setBool(_spendingAlertsEnabledKey, value);
 
@@ -276,9 +278,7 @@ class StorageService {
   List<String> get alertedTransactionIds =>
       _prefs.getStringList(_alertedTransactionIdsKey) ?? const <String>[];
   Future<void> setAlertedTransactionIds(List<String> ids) {
-    final kept = ids.length > _alertedIdsLimit
-        ? ids.sublist(ids.length - _alertedIdsLimit)
-        : ids;
+    final kept = ids.length > _alertedIdsLimit ? ids.sublist(ids.length - _alertedIdsLimit) : ids;
     return _prefs.setStringList(_alertedTransactionIdsKey, kept);
   }
 
@@ -292,13 +292,10 @@ class StorageService {
   // every sign-in entry.
   static const _privacyAcceptedKey = 'privacy_accepted_v1';
   bool get privacyAccepted => _prefs.getBool(_privacyAcceptedKey) ?? false;
-  Future<void> setPrivacyAccepted(bool value) =>
-      _prefs.setBool(_privacyAcceptedKey, value);
+  Future<void> setPrivacyAccepted(bool value) => _prefs.setBool(_privacyAcceptedKey, value);
 
-  bool get useLocalhost =>
-      !kReleaseMode && (_prefs.getBool(_useLocalhostKey) ?? false);
-  Future<void> setUseLocalhost(bool value) =>
-      _prefs.setBool(_useLocalhostKey, value);
+  bool get useLocalhost => !kReleaseMode && (_prefs.getBool(_useLocalhostKey) ?? false);
+  Future<void> setUseLocalhost(bool value) => _prefs.setBool(_useLocalhostKey, value);
 
   // Cloud-sync settings. The master-password-derived key is the one sensitive
   // piece — it lives in secure storage, never in SharedPreferences.
@@ -309,13 +306,10 @@ class StorageService {
   Future<void> setSyncLastAt(String iso) => _prefs.setString(_syncLastAtKey, iso);
 
   // 手环上课提醒（通过小米穿戴 SDK 推送手环通知）。
-  bool get bandReminderEnabled =>
-      _prefs.getBool('band_reminder_enabled') ?? false;
-  Future<void> setBandReminderEnabled(bool value) =>
-      _prefs.setBool('band_reminder_enabled', value);
+  bool get bandReminderEnabled => _prefs.getBool('band_reminder_enabled') ?? false;
+  Future<void> setBandReminderEnabled(bool value) => _prefs.setBool('band_reminder_enabled', value);
 
-  int get bandReminderLeadMinutes =>
-      _prefs.getInt('band_reminder_lead_minutes') ?? 10;
+  int get bandReminderLeadMinutes => _prefs.getInt('band_reminder_lead_minutes') ?? 10;
   Future<void> setBandReminderLeadMinutes(int value) =>
       _prefs.setInt('band_reminder_lead_minutes', value);
 
@@ -325,30 +319,23 @@ class StorageService {
       _prefs.setBool('band_assignment_reminder_enabled', value);
 
   // 手环离线支付凭证（私钥+离线授权）下发开关。
-  bool get bandOfflineCredEnabled =>
-      _prefs.getBool('band_offline_cred_enabled') ?? false;
+  bool get bandOfflineCredEnabled => _prefs.getBool('band_offline_cred_enabled') ?? false;
   Future<void> setBandOfflineCredEnabled(bool value) =>
       _prefs.setBool('band_offline_cred_enabled', value);
 
   // 背屏 / 折叠外屏的精简界面设置。
   bool get glanceEnabled => _prefs.getBool('glance_enabled') ?? true;
-  Future<void> setGlanceEnabled(bool value) =>
-      _prefs.setBool('glance_enabled', value);
+  Future<void> setGlanceEnabled(bool value) => _prefs.setBool('glance_enabled', value);
 
-  bool get glanceShowCourses =>
-      _prefs.getBool('glance_show_courses') ?? true;
-  Future<void> setGlanceShowCourses(bool value) =>
-      _prefs.setBool('glance_show_courses', value);
+  bool get glanceShowCourses => _prefs.getBool('glance_show_courses') ?? true;
+  Future<void> setGlanceShowCourses(bool value) => _prefs.setBool('glance_show_courses', value);
 
-  bool get glanceShowAssignments =>
-      _prefs.getBool('glance_show_assignments') ?? true;
+  bool get glanceShowAssignments => _prefs.getBool('glance_show_assignments') ?? true;
   Future<void> setGlanceShowAssignments(bool value) =>
       _prefs.setBool('glance_show_assignments', value);
 
-  bool get glanceShowPayment =>
-      _prefs.getBool('glance_show_payment') ?? true;
-  Future<void> setGlanceShowPayment(bool value) =>
-      _prefs.setBool('glance_show_payment', value);
+  bool get glanceShowPayment => _prefs.getBool('glance_show_payment') ?? true;
+  Future<void> setGlanceShowPayment(bool value) => _prefs.setBool('glance_show_payment', value);
 
   // 用户添加的穿戴设备列表；null 表示从未设置（由页面给默认值）。
   List<WearableDevice>? get storedWearableDevices {
@@ -364,8 +351,7 @@ class StorageService {
     return devices;
   }
 
-  Future<void> setWearableDevices(List<WearableDevice> devices) =>
-      _prefs.setString(
+  Future<void> setWearableDevices(List<WearableDevice> devices) => _prefs.setString(
         'wearable_devices',
         jsonEncode([for (final device in devices) device.toJson()]),
       );
@@ -396,23 +382,128 @@ class StorageService {
   static const _courseTablePrefix = 'schedule_course_table_';
   static const _termBeginPrefix = 'schedule_term_begin_';
   static const _selectedSemesterKey = 'schedule_selected_semester';
+  static const _scheduleSourceKey = 'schedule_source_preference';
 
-  Future<void> saveSemesters(SemesterInfo info) =>
-      _prefs.setString(_semestersKey, jsonEncode(info.toJson()));
-
-  SemesterInfo? loadSemesters() {
-    final raw = _prefs.getString(_semestersKey);
+  CampusIdentity? loadCampusIdentity(String owner) {
+    final raw = _prefs.getString('schedule_campus_identity');
     if (raw == null) return null;
-    return SemesterInfo.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    try {
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      return data['owner'] == owner ? CampusIdentity.fromJson(data) : null;
+    } catch (_) {
+      return null;
+    }
   }
 
-  Future<void> saveCourseTable(String semesterId, CourseTable table) =>
-      _prefs.setString('$_courseTablePrefix$semesterId', jsonEncode(table.toJson()));
+  Future<void> saveCampusIdentity(String owner, CampusIdentity identity) => _prefs.setString(
+        'schedule_campus_identity',
+        jsonEncode({'owner': owner, ...identity.toJson()}),
+      );
 
-  CourseTable? loadCourseTable(String semesterId) {
+  Future<void> clearCampusIdentity() => _prefs.remove('schedule_campus_identity');
+
+  CampusScheduleSource scheduleSourceFor(String? owner) {
+    if (owner == null) return CampusScheduleSource.automatic;
+    final sources = CampusScheduleSource.values.asNameMap();
+    final source = _prefs.getString('${_scheduleSourceKey}_$owner');
+    if (source != null) return sources[source] ?? CampusScheduleSource.automatic;
+
+    // Older installations saved one preference together with its owner.
+    final raw = _prefs.getString(_scheduleSourceKey);
+    if (raw == null) return CampusScheduleSource.automatic;
+    try {
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      if (data['owner'] == owner) {
+        return sources[data['source']] ?? CampusScheduleSource.automatic;
+      }
+    } catch (_) {
+      return CampusScheduleSource.automatic;
+    }
+    return CampusScheduleSource.automatic;
+  }
+
+  Future<void> setScheduleSource(String owner, CampusScheduleSource source) =>
+      _prefs.setString('${_scheduleSourceKey}_$owner', source.name);
+
+  String? get graduateScheduleOwner {
+    final current = _prefs.getString('graduate_schedule_v2');
+    final raw = current ?? _prefs.getString('graduate_schedule');
+    if (raw == null) return null;
+    try {
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      return current == null
+          ? _prefs.getString('graduate_schedule_owner')
+          : data['owner'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? graduateSchemeFor(String semesterId) => _prefs.getString('graduate_scheme_$semesterId');
+
+  Future<void> setGraduateScheme(String semesterId, String scheme) =>
+      _prefs.setString('graduate_scheme_$semesterId', scheme);
+
+  GraduateSchedule? loadGraduateSchedule() {
+    final raw = _prefs.getString('graduate_schedule_v2') ?? _prefs.getString('graduate_schedule');
+    if (raw == null) return null;
+    try {
+      return GraduateSchedule.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveGraduateSchedule(String owner, GraduateSchedule schedule) =>
+      // Keep the owner and response in one preference write.
+      _prefs.setString('graduate_schedule_v2', jsonEncode({...schedule.toJson(), 'owner': owner}));
+
+  Future<void> clearGraduateScheduleCache() async {
+    final keys = _prefs
+        .getKeys()
+        .where(
+          (key) =>
+              key == 'graduate_schedule' ||
+              key == 'graduate_schedule_v2' ||
+              key == 'graduate_schedule_owner' ||
+              key.startsWith('$_courseTablePrefix$graduateSemesterPrefix') ||
+              key.startsWith('$_termBeginPrefix$graduateSemesterPrefix') ||
+              key.startsWith('graduate_scheme_'),
+        )
+        .toList();
+    if (loadSemesters()?.info.tableId == graduateTableId) keys.add(_semestersKey);
+    if (selectedSemester?.startsWith(graduateSemesterPrefix) == true) {
+      keys.add(_selectedSemesterKey);
+    }
+    await Future.wait(keys.map(_prefs.remove));
+  }
+
+  Future<void> saveSemesters(SemesterInfo info, {String? owner}) =>
+      _prefs.setString(_semestersKey, jsonEncode({...info.toJson(), 'owner': owner}));
+
+  ({SemesterInfo info, String? owner})? loadSemesters() {
+    final raw = _prefs.getString(_semestersKey);
+    if (raw == null) return null;
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    return (info: SemesterInfo.fromJson(json), owner: json['owner'] as String?);
+  }
+
+  Future<void> saveCourseTable(String semesterId, CourseTable table, {String? owner}) =>
+      _prefs.setString(
+        '$_courseTablePrefix$semesterId',
+        jsonEncode({...table.toJson(), if (owner != null) 'owner': owner}),
+      );
+
+  CourseTable? loadCourseTable(String semesterId, {String? owner}) {
     final raw = _prefs.getString('$_courseTablePrefix$semesterId');
     if (raw == null) return null;
-    return CourseTable.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    if (semesterId.startsWith(graduateSemesterPrefix) &&
+        (owner == null || json['owner'] != owner)) {
+      return null;
+    }
+    if (json['owner'] != null && json['owner'] != owner) return null;
+    return CourseTable.fromJson(json);
   }
 
   Future<void> saveTermCalendar(String key, TermCalendar info) =>
@@ -431,21 +522,29 @@ class StorageService {
   String? get selectedSemester => _prefs.getString(_selectedSemesterKey);
   Future<void> setSelectedSemester(String id) => _prefs.setString(_selectedSemesterKey, id);
 
-  // Sessions the user added by hand, keyed by semester like the course table
-  // is — they belong to the timetable they were made on.
   static const _customCoursesPrefix = 'schedule_custom_courses_';
+
+  String? _customCoursesKey(String semesterId, String? owner) {
+    if (!semesterId.startsWith(graduateSemesterPrefix)) {
+      return '$_customCoursesPrefix$semesterId';
+    }
+    // Older graduate entries have no owner and cannot be assigned safely.
+    return owner == null ? null : '$_customCoursesPrefix${semesterId}_$owner';
+  }
 
   Future<void> saveCustomCourses(
     String semesterId,
-    List<CustomCourse> courses,
-  ) =>
-      _prefs.setString(
-        '$_customCoursesPrefix$semesterId',
-        jsonEncode(courses.map((course) => course.toJson()).toList()),
-      );
+    List<CustomCourse> courses, {
+    String? owner,
+  }) async {
+    final key = _customCoursesKey(semesterId, owner);
+    if (key == null) return;
+    await _prefs.setString(key, jsonEncode(courses.map((course) => course.toJson()).toList()));
+  }
 
-  List<CustomCourse> loadCustomCourses(String semesterId) {
-    final raw = _prefs.getString('$_customCoursesPrefix$semesterId');
+  List<CustomCourse> loadCustomCourses(String semesterId, {String? owner}) {
+    final key = _customCoursesKey(semesterId, owner);
+    final raw = key == null ? null : _prefs.getString(key);
     if (raw == null) return const [];
     try {
       final decoded = jsonDecode(raw);
@@ -527,8 +626,7 @@ class StorageService {
     OaBookingProfile? schoolProfile,
   }) {
     final data = profile.toJson();
-    final school =
-        schoolProfile?.toJson() ?? _bookingProfileRecord(owner)['school'];
+    final school = schoolProfile?.toJson() ?? _bookingProfileRecord(owner)['school'];
     if (school is Map) data['school'] = school;
     return _prefs.setString(_bookingProfileKey(owner), jsonEncode(data));
   }

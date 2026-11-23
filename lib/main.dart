@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:cupertino_native_better/cupertino_native_better.dart';
-import 'package:desktop_webview_window/desktop_webview_window.dart'
-    show runWebViewTitleBarWidget;
+import 'package:desktop_webview_window/desktop_webview_window.dart' show runWebViewTitleBarWidget;
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -47,6 +46,7 @@ import 'widgets/app_shell/app_shell.dart';
 import 'widgets/glance/glance_gate.dart';
 import 'widgets/privacy_consent.dart';
 import 'widgets/update_dialogs.dart';
+
 /// The entrypoint a background engine runs: no UI, just the island and the
 /// spending alerts. It lives in this root library because the host resolves
 /// the entrypoint by name from here.
@@ -100,8 +100,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
     logger: debugLogger,
   );
   final themeService = ThemeService(storageService);
-  final campusCardService =
-      CampusCardService(debugLogger: debugLogger, storage: storageService);
+  final campusCardService = CampusCardService(debugLogger: debugLogger, storage: storageService);
   final ecardBindService = EcardBindService();
   final ecardWidgetService = EcardWidgetService();
   final thirdPartyAuthService = ThirdPartyAuthService(
@@ -132,7 +131,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
     thirdPartyAuthService,
     scheduleService,
   );
-final wearEngineService = isAndroid()
+  final wearEngineService = isAndroid()
       ? WearEngineService(
           transport: AndroidWearTransport(),
           metadata: PreferencesWearMetadata(prefs),
@@ -185,13 +184,6 @@ final wearEngineService = isAndroid()
   // state (throttled). Wired via post-construction setter to avoid a circular
   // dependency between ThirdPartyAuthService and SyncService.
   thirdPartyAuthService.onBindingsChanged = ({force = false}) {
-    // The timetable is drawn from the IDS binding, and `fetchAll` does nothing
-    // at all while there is none — silently, which is how a freshly bound account
-    // used to sit on an empty table with nothing to suggest it should reload. This
-    // runs for every binding, though, and a timetable does not care about
-    // Gradescope: requestFetch is what decides whether the campus account this
-    // data belongs to actually changed, and collapses the burst around a login
-    // into one round.
     scheduleService.requestFetch();
     return force ? syncService.forcePush() : syncService.pushIfDue();
   };
@@ -298,8 +290,7 @@ final wearEngineService = isAndroid()
     void deadlinesChanged() {
       if (wearEngineService.ready &&
           !assignmentService.loading &&
-          (wearEngineService.getStatus()['capabilities'] as List)
-              .contains('ddl.display')) {
+          (wearEngineService.getStatus()['capabilities'] as List).contains('ddl.display')) {
         unawaited(
           wearEngineService.refresh(resources: ['ddl']).catchError(
             (Object error) {
@@ -326,9 +317,7 @@ final wearEngineService = isAndroid()
     // refresh token (legacy session) this is a no-op and returns false —
     // that is NOT a "login expired" condition, only an actual renewal
     // failure is.
-    final renewMain = authService.isLoggedIn
-        ? authService.tryRenewSession()
-        : Future.value(true);
+    final renewMain = authService.isLoggedIn ? authService.tryRenewSession() : Future.value(true);
     final renewThirdParty = thirdPartyAuthService.autoRenewIfNeeded();
 
     final results = await Future.wait([renewMain, renewThirdParty]);
@@ -337,9 +326,7 @@ final wearEngineService = isAndroid()
 
     // Only surface a renewal failure when we actually had a refresh token
     // to try (a no-op returning false is not an expiry).
-    if (!mainOk &&
-        authService.session?.geekpieRefreshToken != null &&
-        !isIos()) {
+    if (!mainOk && authService.session?.geekpieRefreshToken != null && !isIos()) {
       showAdaptiveFeedback(
         message: '登录已过期，请重新登录',
         style: AdaptiveFeedbackStyle.error,
@@ -359,8 +346,7 @@ final wearEngineService = isAndroid()
       // and this used to be a second round on top of theirs.
       scheduleService.requestFetch(force: true);
     }
-    if (authService.isLoggedIn ||
-        thirdPartyAuthService.boundPlatforms.isNotEmpty) {
+    if (authService.isLoggedIn || thirdPartyAuthService.boundPlatforms.isNotEmpty) {
       await assignmentService.fetchAssignments();
     }
 
@@ -428,7 +414,7 @@ class TechPieApp extends StatefulWidget {
   final CampusCardService campusCardService;
   final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
-final IslandService? islandService;
+  final IslandService? islandService;
   final SpendingAlertService? spendingAlertService;
   final KeepAliveService? keepAliveService;
   final ScreenFormFactorService? screenFormFactorService;
@@ -453,7 +439,7 @@ final IslandService? islandService;
     required this.campusCardService,
     required this.ecardBindService,
     this.ecardWidgetService,
-this.islandService,
+    this.islandService,
     this.spendingAlertService,
     this.keepAliveService,
     this.screenFormFactorService,

@@ -13,18 +13,19 @@ List<Course> coursesOnDay(
   AssignmentService assignments,
   DateTime day,
 ) {
-  final table = schedule.courseTable;
+  final table = schedule.fullCourseTable;
   final periods = table != null && table.periods.isNotEmpty
       ? table.periods.map((period) => period.toPeriod()).toList()
       : defaultPeriods;
   final begin = schedule.termBegin;
   final date = DateTime(day.year, day.month, day.day);
-  final firstDay = begin == null
-      ? null
-      : DateTime(begin.year, begin.month, begin.day);
-  final week = firstDay == null ? 1 : date.difference(firstDay).inDays ~/ 7 + 1;
-  if (firstDay != null &&
-      (date.isBefore(firstDay) || week > schedule.totalWeeks)) {
+  final firstDay = begin == null ? null : DateTime(begin.year, begin.month, begin.day);
+  final week = schedule.isGraduate
+      ? teachingWeekOf(date, begin) ?? 0
+      : firstDay == null
+          ? 1
+          : date.difference(firstDay).inDays ~/ 7 + 1;
+  if (firstDay != null && (date.isBefore(firstDay) || week > schedule.totalWeeks)) {
     return const [];
   }
   final withCustom = withCustomCourses(
@@ -32,11 +33,13 @@ List<Course> coursesOnDay(
       table?.courses ?? const <EamsCourse>[],
       week,
       timetablePeriods: periods,
+      onDate: date,
     ),
     schedule.customCourses,
     week,
     schedule.termBegin,
     periods: periods,
+    onDate: date,
   );
   final all = withExamCourses(
     withCustom,

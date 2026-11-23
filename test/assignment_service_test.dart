@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/models/assignment.dart';
+import 'package:techpie/models/campus_identity.dart';
 import 'package:techpie/models/third_party_account.dart';
 import 'package:techpie/models/user_session.dart';
 import 'package:techpie/services/assignment_service.dart';
@@ -72,9 +73,7 @@ void main() {
             password: 'synthetic-password',
             expire: DateTime.now()
                     .add(
-                      expired
-                          ? const Duration(days: -1)
-                          : const Duration(days: 30),
+                      expired ? const Duration(days: -1) : const Duration(days: 30),
                     )
                     .millisecondsSinceEpoch ~/
                 1000,
@@ -148,8 +147,7 @@ void main() {
           ? fixture.service.fetchPlatform('gradescope')
           : fixture.service.fetchAssignments();
       await requested.future;
-      await fixture.thirdParty
-          .replaceAll([_gradescopeAccount('new-account', 'new-token')]);
+      await fixture.thirdParty.replaceAll([_gradescopeAccount('new-account', 'new-token')]);
       expect(fixture.service.identityEpoch, greaterThan(0));
       expect(fixture.service.assignments.map((a) => a.id), ['unrelated']);
       oldResponse.complete(
@@ -187,13 +185,11 @@ void main() {
         if (url.path.endsWith('/deadlines/gradescope')) deadlineCalls++;
         return http.Response('not found', 404);
       },
-      account: _gradescopeAccount('old-account', 'old-token')
-          .copyWith(sid: 'session-1'),
+      account: _gradescopeAccount('old-account', 'old-token').copyWith(sid: 'session-1'),
     );
     fixture.service.enableAutoRefetch();
     await fixture.thirdParty.replaceAll([
-      _gradescopeAccount('old-account', 'renewed-token')
-          .copyWith(sid: 'session-2'),
+      _gradescopeAccount('old-account', 'renewed-token').copyWith(sid: 'session-2'),
     ]);
     await Future<void>.delayed(Duration.zero);
 
@@ -206,9 +202,7 @@ void main() {
     expect(deadlineCalls, 1);
   });
 
-  test(
-      'logout invalidates pending results and binding renewal cannot restore them',
-      () async {
+  test('logout invalidates pending results and binding renewal cannot restore them', () async {
     final response = Completer<http.Response>();
     final requested = Completer<void>();
     final fixture = await _identityFixture((url, body) {
@@ -219,8 +213,7 @@ void main() {
     final fetch = fixture.service.fetchAssignments();
     await requested.future;
     await fixture.auth.logout();
-    await fixture.thirdParty
-        .replaceAll([_gradescopeAccount('old-account', 'renewed-token')]);
+    await fixture.thirdParty.replaceAll([_gradescopeAccount('old-account', 'renewed-token')]);
     response.complete(
       http.Response(
         jsonEncode({
@@ -247,6 +240,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final storage = StorageService(prefs);
+    await storage.setScheduleSource('20240001|20240001', CampusScheduleSource.undergraduate);
 
     final oldBlackboard = _assignmentJson(
       id: 'blackboard-old',
@@ -312,9 +306,7 @@ void main() {
     await auth.loadSession();
     await tpAuth.initialize();
 
-    final service =
-        AssignmentService(storage, httpClient, auth, tpAuth, schedule)
-          ..loadCached();
+    final service = AssignmentService(storage, httpClient, auth, tpAuth, schedule)..loadCached();
 
     await service.fetchAssignments();
 
@@ -328,8 +320,7 @@ void main() {
     );
     expect(service.platformErrors['gradescope'], 'upstream failed');
 
-    final cachedIds =
-        storage.loadCachedAssignments().map((a) => a['id']).toList();
+    final cachedIds = storage.loadCachedAssignments().map((a) => a['id']).toList();
     expect(cachedIds, containsAll(['blackboard-new', 'gradescope-old']));
     expect(cachedIds, isNot(contains('blackboard-old')));
   });
@@ -339,6 +330,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final storage = StorageService(prefs);
+    await storage.setScheduleSource('20240001|20240001', CampusScheduleSource.undergraduate);
     await storage.setSelectedSemester('263');
     await storage.saveSession(
       UserSession(
@@ -401,8 +393,7 @@ void main() {
     await tpAuth.initialize();
     await schedule.loadCachedData();
 
-    final service =
-        AssignmentService(storage, httpClient, auth, tpAuth, schedule);
+    final service = AssignmentService(storage, httpClient, auth, tpAuth, schedule);
 
     await service.fetchAssignments();
 
@@ -428,8 +419,7 @@ void main() {
       seenBodies,
       contains(
         predicate<Map<String, dynamic>>((body) {
-          return body['semester_id'] == '263' &&
-              body['cookies'] == 'JSESSIONID=eams-mock';
+          return body['semester_id'] == '263' && body['cookies'] == 'JSESSIONID=eams-mock';
         }),
       ),
     );
@@ -463,8 +453,7 @@ void main() {
     final thirdParty = ThirdPartyAuthService(storage, http);
     await thirdParty.initialize();
     final schedule = ScheduleService(storage, http, auth, thirdParty);
-    final service = AssignmentService(storage, http, auth, thirdParty, schedule)
-      ..loadCached();
+    final service = AssignmentService(storage, http, auth, thirdParty, schedule)..loadCached();
     addTearDown(() {
       service.dispose();
       schedule.dispose();
@@ -505,15 +494,13 @@ class _AssignmentHttpClient extends LoggingHttpClient {
     Encoding? encoding,
     String? tag,
   }) async {
-    final decodedBody = body is String
-        ? jsonDecode(body) as Map<String, dynamic>
-        : <String, dynamic>{};
+    final decodedBody =
+        body is String ? jsonDecode(body) as Map<String, dynamic> : <String, dynamic>{};
     return _handler(url, decodedBody);
   }
 }
 
-ThirdPartyAccount _gradescopeAccount(String account, String token) =>
-    ThirdPartyAccount(
+ThirdPartyAccount _gradescopeAccount(String account, String token) => ThirdPartyAccount(
       platform: ThirdPartyPlatform.gradescope,
       account: account,
       token: token,
@@ -534,6 +521,12 @@ Future<
   SharedPreferences.setMockInitialValues({});
   FlutterSecureStorage.setMockInitialValues({});
   final storage = StorageService(await SharedPreferences.getInstance());
+  if (account?.platform == ThirdPartyPlatform.ids) {
+    await storage.setScheduleSource(
+      '${account!.sid}|${account.account}',
+      CampusScheduleSource.undergraduate,
+    );
+  }
   await storage.saveSession(
     UserSession(
       userId: 'synthetic-user',
@@ -546,18 +539,19 @@ Future<
     account ?? _gradescopeAccount('old-account', 'old-token'),
   );
   await storage.saveCachedAssignments(
-    cached ?? [
-      _assignmentJson(
-        id: 'old-cache',
-        platform: 'gradescope',
-        due: DateTime.utc(2027),
-      ),
-      _assignmentJson(
-        id: 'unrelated',
-        platform: 'synthetic',
-        due: DateTime.utc(2027),
-      ),
-    ],
+    cached ??
+        [
+          _assignmentJson(
+            id: 'old-cache',
+            platform: 'gradescope',
+            due: DateTime.utc(2027),
+          ),
+          _assignmentJson(
+            id: 'unrelated',
+            platform: 'synthetic',
+            due: DateTime.utc(2027),
+          ),
+        ],
   );
   final client = _AssignmentHttpClient(handler);
   final auth = AuthService(storage, client, UniAuthService());
@@ -565,8 +559,7 @@ Future<
   await auth.loadSession();
   await thirdParty.initialize();
   final schedule = ScheduleService(storage, client, auth, thirdParty);
-  final service = AssignmentService(storage, client, auth, thirdParty, schedule)
-    ..loadCached();
+  final service = AssignmentService(storage, client, auth, thirdParty, schedule)..loadCached();
   addTearDown(() {
     service.dispose();
     schedule.dispose();
@@ -574,10 +567,5 @@ Future<
     auth.dispose();
     client.close();
   });
-  return (
-    service: service,
-    thirdParty: thirdParty,
-    auth: auth,
-    storage: storage
-  );
+  return (service: service, thirdParty: thirdParty, auth: auth, storage: storage);
 }
