@@ -66,12 +66,13 @@ Future<void> _reportSpending(
 ) async {
   if (!alerts.enabled) return;
   try {
-    card.prepare();
-    final port = card.runtime.transactions;
-    if (port is! DateRangeTransactionHistoryPort) return;
-    // Unrelated interfaces, so no promotion: the cast is the narrowing.
-    final page = await (port as DateRangeTransactionHistoryPort).timelineRange();
-    await alerts.refreshInBackground(() async => page.items);
+    await alerts.refreshInBackground(() async {
+      card.prepare();
+      final port = card.runtime.transactions;
+      if (port is! DateRangeTransactionHistoryPort) return [];
+      final page = await (port as DateRangeTransactionHistoryPort).timelineRange(pageSize: 50);
+      return page.items;
+    });
   } catch (_) {
     // No session, no network, no news: the in-app path catches up later.
   }

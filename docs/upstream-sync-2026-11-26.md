@@ -73,6 +73,8 @@
 - actionlint 1.7.7：工作流语法通过（本机没有 shellcheck，脚本 lint 由对应 CI 完成）。
 - Android 通用 Release APK：构建通过；aapt 校验 versionName=26h2-112601、versionCode=26112601、minSdk=24；apksigner v2/v3 验签通过。
 - Android 原生 SpendingLedger 单元测试：9 项通过。
+- 最终后台入口修正：消费读取回调在隐私／身份校验之后执行；相关 17 项测试和静态分析通过，Android/Linux Release 均重新构建通过。
+- Linux AppImage 本地打包通过；打包检查及 Flatpak 打包检查在 GitHub Actions 通过。
 - Linux 主程序 Release：构建通过，已包含更新后的 WebKit 登录窗口。
 - 本机没有 Qt6 开发包，KDE 组件编译由发布 CI 验证；本机没有 Xcode/Windows 工具链，Apple 编译和真机光学扫码、睡眠唤醒不声称已验证。
 - 发布 Auto CI 增加发布前 analyze/test/Node 门禁以及原生账本单元测试；Linux 同步生成 AppImage/Flatpak。远端完成结果以对应发布和 Actions 为准。
