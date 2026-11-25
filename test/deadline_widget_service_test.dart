@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage_ohos/flutter_secure_storage_ohos.dart';
@@ -197,5 +198,91 @@ void main() {
     );
     final items = DeadlineWidgetService.displayItems([exam], (_) => false, now);
     expect(items.single['subtitle'], 'Teaching Center 101');
+  });
+
+  test('Linux keeps its v1 snapshot fields and sharing switch', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    service.dispose();
+    service = DeadlineWidgetService(
+      assignments,
+      channel: channel,
+      now: () => now,
+      enabled: false,
+    );
+    service.initialize();
+    await service.flush();
+    expect(calls.last.method, 'clear');
+    expect(calls.where((call) => call.method == 'publish'), isEmpty);
+
+    await service.setEnabled(true);
+    final payload = jsonDecode(calls.last.arguments as String) as Map;
+    final items = payload['items'] as List;
+    expect(items, hasLength(10));
+    expect((items.first as Map).keys.toSet(), {'id', 'kind', 'title', 'subtitle', 'dueAt'});
+    expect(items.first['subtitle'], 'Course');
+
+    await assignments.clearCache();
+    await service.flush();
+    expect(calls.last.method, 'publish');
+    expect((jsonDecode(calls.last.arguments as String) as Map)['items'], isEmpty);
+    await service.setEnabled(false);
+    expect(calls.last.method, 'clear');
+  });
+
+  test('Linux revocation discards queued publications', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    service.dispose();
+    service = DeadlineWidgetService(assignments, channel: channel, now: () => now);
+    final blocked = Completer<void>();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      if (call.method == 'publish') await blocked.future;
+      return false;
+    });
+    service.initialize();
+    await Future<void>.delayed(Duration.zero);
+    await assignments.hide(assignments.assignments.first);
+    final disabling = service.setEnabled(false);
+    blocked.complete();
+    await disabling;
+    expect(calls.where((call) => call.method == 'publish'), hasLength(1));
+    expect(calls.last.method, 'clear');
+  });
+
+  test('Linux publishes custom deadlines with location fallback and excludes notes', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await assignments.clearCache();
+    service.dispose();
+    service = DeadlineWidgetService(assignments, channel: channel, now: () => now);
+    service.initialize();
+    await service.flush();
+
+    await assignments.saveCustomDeadline(
+      owner: null,
+      title: 'Lab Check-in',
+      course: '',
+      location: ' SIST 1B-201 ',
+      notes: 'Secret reminder notes',
+      due: now.add(const Duration(hours: 3)),
+    );
+    await service.flush();
+
+    final payload = jsonDecode(calls.last.arguments as String) as Map<Object?, Object?>;
+    final items = payload['items'] as List<dynamic>;
+    expect(items, hasLength(1));
+    final item = items.single as Map<Object?, Object?>;
+    expect(item.keys.toSet(), {'id', 'kind', 'title', 'subtitle', 'dueAt'});
+    expect(item['kind'], 'assignment');
+    expect(item['title'], 'Lab Check-in');
+    expect(item['subtitle'], 'SIST 1B-201');
+    expect(calls.last.arguments, isNot(contains('Secret reminder notes')));
+
+    await assignments.setCompleted(assignments.visibleAssignments.single, true);
+    await service.flush();
+    final afterComplete = jsonDecode(calls.last.arguments as String) as Map<Object?, Object?>;
+    expect(afterComplete['items'] as List<dynamic>, isEmpty);
   });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,14 +11,20 @@ import '../models/assignment_overrides.dart';
 import '../services/assignment_service.dart';
 import '../services/deadline_reminder_service.dart';
 import '../services/service_provider.dart';
+import '../theme/theme.dart';
+import '../utils/adaptive_layout.dart';
 import '../utils/adaptive_motion.dart';
+import '../utils/haptics.dart';
+import '../utils/motion.dart';
 import '../utils/platform.dart';
-import '../widgets/adaptive_alert_dialog.dart';
+import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/adaptive_navigation_scaffold.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../widgets/design_system/design_system.dart';
+import '../widgets/desktop_popup.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
 import '../widgets/page_refresh.dart';
 import '../widgets/swipeable_card.dart';
@@ -44,19 +51,38 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
   bool _savingReminders = false;
   bool _showAssignments = true;
   bool _showExams = true;
+  bool _filterPrefsLoaded = false;
   final Set<String> _selected = {};
   final Set<String> _initialReminderKeys = {};
   Timer? _countdownTimer;
 
   bool get _selectionMode => _selectionPurpose != null;
-  bool get _selectingReminders => _selectionPurpose == _SelectionPurpose.reminders;
-  bool get _loadingReminders => _selectingReminders && _reminderSelectionEpoch == null;
+  bool get _selectingReminders =>
+      _selectionPurpose == _SelectionPurpose.reminders;
+  bool get _loadingReminders =>
+      _selectingReminders && _reminderSelectionEpoch == null;
   bool get _remindersBusy => _loadingReminders || _savingReminders;
 
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     _startCountdownTimer();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.escape) {
+      return false;
+    }
+    if (!mounted ||
+        !_selectionMode ||
+        _remindersBusy ||
+        !(ModalRoute.isCurrentOf(context) ?? true)) {
+      return false;
+    }
+    _exitSelection();
+    return true;
   }
 
   void _startCountdownTimer() {
@@ -71,7 +97,13 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final service = ServiceProvider.of(context).assignmentService;
+    final sp = ServiceProvider.of(context);
+    if (!_filterPrefsLoaded) {
+      _filterPrefsLoaded = true;
+      _showAssignments = sp.storageService.deadlinesShowAssignments;
+      _showExams = sp.storageService.deadlinesShowExams;
+    }
+    final service = sp.assignmentService;
     if (!identical(_assignmentService, service)) {
       _assignmentService?.removeListener(_onAssignmentServiceChanged);
       _assignmentService = service..addListener(_onAssignmentServiceChanged);
@@ -91,6 +123,7 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _assignmentService?.removeListener(_onAssignmentServiceChanged);
     _countdownTimer?.cancel();
     super.dispose();
@@ -198,7 +231,9 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
       return;
     }
     await service.resetOverrides(_selected.toList());
-    if (mounted && identical(_assignmentService, service) && _manageSelectionEpoch == epoch) {
+    if (mounted &&
+        identical(_assignmentService, service) &&
+        _manageSelectionEpoch == epoch) {
       _exitSelection();
     }
   }
@@ -209,13 +244,16 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
   ) async {
     final epoch = _reminderSelectionEpoch;
     if (_remindersBusy || epoch == null) return;
-    final add = _selected.difference(_initialReminderKeys).intersection(visibleKeys);
-    final remove = _initialReminderKeys.difference(_selected).intersection(visibleKeys);
+    final add =
+        _selected.difference(_initialReminderKeys).intersection(visibleKeys);
+    final remove =
+        _initialReminderKeys.difference(_selected).intersection(visibleKeys);
     if (add.isEmpty && remove.isEmpty) return;
 
     setState(() => _savingReminders = true);
     try {
-      final result = await reminders.saveSelection(epoch: epoch, add: add, remove: remove);
+      final result =
+          await reminders.saveSelection(epoch: epoch, add: add, remove: remove);
       if (!mounted) return;
       setState(() {
         if (result.failed == 0) {
@@ -236,11 +274,14 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
       showAdaptiveFeedback(
         context: context,
         message: message,
-        style: result.failed > 0 ? AdaptiveFeedbackStyle.error : AdaptiveFeedbackStyle.success,
+        style: result.failed > 0
+            ? AdaptiveFeedbackStyle.error
+            : AdaptiveFeedbackStyle.success,
       );
     } on Exception catch (error) {
       if (!mounted) return;
-      if (error is PlatformException && error.code == 'reminders_workspace_changed') {
+      if (error is PlatformException &&
+          error.code == 'reminders_workspace_changed') {
         setState(_clearSelection);
       }
       _showReminderError(error, '无法保存提醒事项');
@@ -251,14 +292,21 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
 
   void _showReminderError(Exception error, String fallback) {
     final message = switch (error) {
-      PlatformException(code: 'reminders_denied') => '请在系统设置中允许 TechPie 访问提醒事项',
+      PlatformException(code: 'reminders_denied') =>
+        '请在系统设置中允许 TechPie 访问提醒事项',
       PlatformException(code: 'reminders_no_list') => '找不到可写入的提醒事项列表',
-      PlatformException(code: 'reminders_list_creation_failed') => '无法创建 Deadline 提醒事项列表',
-      PlatformException(code: 'reminders_workspace_changed') => '当前账户已切换，请重新选择提醒事项',
+      PlatformException(code: 'reminders_list_creation_failed') =>
+        '无法创建 Deadline 提醒事项列表',
+      PlatformException(code: 'reminders_workspace_changed') =>
+        '当前账户已切换，请重新选择提醒事项',
       MissingPluginException() => '当前设备无法访问提醒事项',
       _ => fallback,
     };
-    showAdaptiveFeedback(context: context, message: message, style: AdaptiveFeedbackStyle.error);
+    showAdaptiveFeedback(
+      context: context,
+      message: message,
+      style: AdaptiveFeedbackStyle.error,
+    );
   }
 
   Future<void> _refresh(AssignmentService service) async {
@@ -268,7 +316,9 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     showAdaptiveFeedback(
       context: context,
       message: hasError ? '刷新失败' : '已刷新',
-      style: hasError ? AdaptiveFeedbackStyle.error : AdaptiveFeedbackStyle.success,
+      style: hasError
+          ? AdaptiveFeedbackStyle.error
+          : AdaptiveFeedbackStyle.success,
       duration: const Duration(seconds: 2),
     );
   }
@@ -278,11 +328,7 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     final services = ServiceProvider.of(context);
     final assignmentService = services.assignmentService;
     final reminders = services.deadlineReminderService;
-    final useIosChrome = isIos();
-    final useLegacyIosChrome = usesLegacyIosChrome();
-    final topInset = useIosChrome || useLegacyIosChrome
-        ? 0.0
-        : adaptiveTopBarHeight() + MediaQuery.viewPaddingOf(context).top;
+    final topInset = AdaptiveNavigationScaffold.contentTopInsetOf(context);
 
     return ListenableBuilder(
       listenable: assignmentService,
@@ -290,10 +336,16 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
         final allVisible = assignmentService.visibleAssignments;
         final visible = _filterAssignments(allVisible);
         return AdaptiveNavigationScaffold(
-          extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
+          extendBodyBehindAppBar:
+              AdaptiveNavigationScaffold.extendsBodyBehindAppBar(),
           appBar: _selectionMode
               ? _buildSelectionAppBar(assignmentService, visible, reminders)
-              : _buildNormalAppBar(context, assignmentService, reminders, visible),
+              : _buildNormalAppBar(
+                  context,
+                  assignmentService,
+                  reminders,
+                  visible,
+                ),
           body: PopScope(
             canPop: !_selectionMode,
             onPopInvokedWithResult: (didPop, _) {
@@ -319,8 +371,8 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     List<Assignment> visible,
   ) {
     final canManageReminders = reminders != null && visible.isNotEmpty;
-    if (isIos()) {
-      return IosNativeNavigationBar(
+    return AdaptiveNavigationScaffold.adaptiveBar(
+      ios: () => IosNativeNavigationBar(
         title: 'Deadlines',
         largeTitleMode: true,
         trailingItems: [
@@ -385,86 +437,195 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
               );
           }
         },
-      );
-    }
-
-    return BlurredAppBar(
-      title: const Text('Deadlines'),
-      actions: [
-        if (isDesktop())
-          PageRefreshButton(
-            onRefresh: () => _refresh(service),
-            refreshing: service.loading,
-          ),
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
-          tooltip: '更多操作',
-          onSelected: (v) {
-            switch (v) {
-              case 'toggleAssignments':
-                _toggleAssignmentsVisibility();
-              case 'toggleExams':
-                _toggleExamsVisibility();
-              case 'addDeadline':
-                unawaited(CustomDeadlineEditorPage.open(context));
-              case 'manageReminders':
-                unawaited(_enterReminderSelection(service, reminders, visible));
-              case 'hidden':
-                unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const HiddenAssignmentsPage(),
-                  ),
-                );
-            }
-          },
-          itemBuilder: (_) => [
-            CheckedPopupMenuItem(
-              value: 'toggleAssignments',
-              checked: _showAssignments,
-              child: const Text('显示作业'),
+      ),
+      material: () => BlurredAppBar(
+        title: const Text('Deadlines'),
+        actions: [
+          if (isDesktop())
+            PageRefreshButton(
+              onRefresh: () => _refresh(service),
+              refreshing: service.loading,
             ),
-            CheckedPopupMenuItem(
-              value: 'toggleExams',
-              checked: _showExams,
-              child: const Text('显示考试'),
-            ),
-            const PopupMenuDivider(),
-            const PopupMenuItem(
-              value: 'addDeadline',
-              child: Row(
-                children: [
-                  Icon(Icons.add, size: 20),
-                  SizedBox(width: 12),
-                  Text('添加 Deadline'),
-                ],
-              ),
-            ),
-            if (reminders != null)
-              PopupMenuItem(
-                value: 'manageReminders',
-                enabled: canManageReminders,
-                child: const Row(
-                  children: [
-                    Icon(Icons.checklist, size: 20),
-                    SizedBox(width: 12),
-                    Text('添加到提醒事项'),
-                  ],
+          if (usesSidebarLayout(context))
+            Builder(
+              builder: (anchorContext) => IconButton(
+                icon: const Icon(TpIcons.more),
+                tooltip: '更多操作',
+                onPressed: () => _showDesktopMoreMenu(
+                  anchorContext,
+                  service,
+                  reminders,
+                  visible,
+                  canManageReminders: canManageReminders,
                 ),
               ),
-            PopupMenuItem(
-              value: 'hidden',
-              child: Row(
-                children: [
-                  const Icon(Icons.visibility_off_outlined, size: 20),
-                  const SizedBox(width: 12),
-                  Text('查看已忽略 (${service.overrides.hidden.length})'),
-                ],
-              ),
+            )
+          else
+            PopupMenuButton<String>(
+              icon: const Icon(TpIcons.more),
+              tooltip: '更多操作',
+              onSelected: (v) {
+                switch (v) {
+                  case 'toggleAssignments':
+                    _toggleAssignmentsVisibility();
+                  case 'toggleExams':
+                    _toggleExamsVisibility();
+                  case 'addDeadline':
+                    unawaited(CustomDeadlineEditorPage.open(context));
+                  case 'manageReminders':
+                    unawaited(
+                      _enterReminderSelection(service, reminders, visible),
+                    );
+                  case 'hidden':
+                    unawaited(
+                      pushAdaptivePage<void>(
+                        context,
+                        builder: (_) => const HiddenAssignmentsPage(),
+                      ),
+                    );
+                }
+              },
+              itemBuilder: (_) => [
+                CheckedPopupMenuItem(
+                  value: 'toggleAssignments',
+                  checked: _showAssignments,
+                  child: const Text('显示作业'),
+                ),
+                CheckedPopupMenuItem(
+                  value: 'toggleExams',
+                  checked: _showExams,
+                  child: const Text('显示考试'),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'addDeadline',
+                  child: Row(
+                    children: [
+                      Icon(TpIcons.add, size: TpTokens.iconM),
+                      SizedBox(width: TpTokens.space3),
+                      Text('添加 Deadline'),
+                    ],
+                  ),
+                ),
+                if (reminders != null)
+                  PopupMenuItem(
+                    value: 'manageReminders',
+                    enabled: canManageReminders,
+                    child: const Row(
+                      children: [
+                        Icon(TpIcons.checkCircle, size: TpTokens.iconM),
+                        SizedBox(width: TpTokens.space3),
+                        Text('添加到提醒事项'),
+                      ],
+                    ),
+                  ),
+                PopupMenuItem(
+                  value: 'hidden',
+                  child: Row(
+                    children: [
+                      const Icon(TpIcons.eyeOff, size: TpTokens.iconM),
+                      const SizedBox(width: TpTokens.space3),
+                      Text('查看已忽略 (${service.overrides.hidden.length})'),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+
+  void _showDesktopMoreMenu(
+    BuildContext anchorContext,
+    AssignmentService service,
+    DeadlineReminderService? reminders,
+    List<Assignment> visible, {
+    required bool canManageReminders,
+  }) {
+    showDesktopPopover(
+      anchorContext: anchorContext,
+      width: 232,
+      placement: DesktopPopoverPlacement.belowEnd,
+      offset: const Offset(0, 6),
+      builder: (menuContext, close) {
+        final colors = menuContext.tpColors;
+        return DesktopPopoverSurface(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DesktopMenuRow(
+                leading: _showAssignments
+                    ? const Icon(TpIcons.check, size: TpTokens.iconS)
+                    : const SizedBox(width: TpTokens.iconS),
+                title: Text('显示作业', style: TpTypography.itemTitle(colors)),
+                selected: _showAssignments,
+                onTap: () {
+                  close();
+                  _toggleAssignmentsVisibility();
+                },
+              ),
+              DesktopMenuRow(
+                leading: _showExams
+                    ? const Icon(TpIcons.check, size: TpTokens.iconS)
+                    : const SizedBox(width: TpTokens.iconS),
+                title: Text('显示考试', style: TpTypography.itemTitle(colors)),
+                selected: _showExams,
+                onTap: () {
+                  close();
+                  _toggleExamsVisibility();
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: TpTokens.space2,
+                  vertical: 4,
+                ),
+                child: Divider(height: 1, thickness: 0.5, color: colors.divider),
+              ),
+              DesktopMenuRow(
+                leading: const Icon(TpIcons.add, size: TpTokens.iconM),
+                title: Text('添加 Deadline', style: TpTypography.itemTitle(colors)),
+                onTap: () {
+                  close();
+                  unawaited(CustomDeadlineEditorPage.open(context));
+                },
+              ),
+              if (reminders != null)
+                DesktopMenuRow(
+                  leading:
+                      const Icon(TpIcons.checkCircle, size: TpTokens.iconM),
+                  title: Text('添加到提醒事项', style: TpTypography.itemTitle(colors)),
+                  onTap: canManageReminders
+                      ? () {
+                          close();
+                          unawaited(
+                            _enterReminderSelection(service, reminders, visible),
+                          );
+                        }
+                      : null,
+                ),
+              DesktopMenuRow(
+                leading: const Icon(TpIcons.eyeOff, size: TpTokens.iconM),
+                title: Text(
+                  '查看已忽略 (${service.overrides.hidden.length})',
+                  style: TpTypography.itemTitle(colors),
+                ),
+                onTap: () {
+                  close();
+                  unawaited(
+                    pushAdaptivePage<void>(
+                      context,
+                      builder: (_) => const HiddenAssignmentsPage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -485,17 +646,27 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
   }
 
   void _toggleAssignmentsVisibility() {
+    final next = !_showAssignments;
     setState(() {
-      _showAssignments = !_showAssignments;
+      _showAssignments = next;
       _clearSelection();
     });
+    unawaited(
+      ServiceProvider.of(context).storageService.setDeadlinesShowAssignments(
+            next,
+          ),
+    );
   }
 
   void _toggleExamsVisibility() {
+    final next = !_showExams;
     setState(() {
-      _showExams = !_showExams;
+      _showExams = next;
       _clearSelection();
     });
+    unawaited(
+      ServiceProvider.of(context).storageService.setDeadlinesShowExams(next),
+    );
   }
 
   PreferredSizeWidget _buildSelectionAppBar(
@@ -504,24 +675,29 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     DeadlineReminderService? reminders,
   ) {
     final manageEpoch = _manageSelectionEpoch;
-    final keyFor = _selectingReminders ? service.reminderKeyFor : AssignmentOverrides.keyFor;
+    final keyFor = _selectingReminders
+        ? service.reminderKeyFor
+        : AssignmentOverrides.keyFor;
     final visibleKeys = visible.map(keyFor).toSet();
     final selectedCount = visibleKeys.intersection(_selected).length;
-    final allSelected = visibleKeys.isNotEmpty && selectedCount == visibleKeys.length;
+    final allSelected =
+        visibleKeys.isNotEmpty && selectedCount == visibleKeys.length;
     final title = _loadingReminders
         ? '正在读取提醒事项…'
         : _selectingReminders && selectedCount == 0
             ? '选择截止事项'
             : '已选择 $selectedCount 个';
-    final hasChanges =
-        visibleKeys.any((key) => _selected.contains(key) != _initialReminderKeys.contains(key));
+    final hasChanges = visibleKeys.any(
+      (key) => _selected.contains(key) != _initialReminderKeys.contains(key),
+    );
     final VoidCallback? save =
         _selectingReminders && reminders != null && hasChanges && !_remindersBusy
             ? () => unawaited(_saveReminderSelection(reminders, visibleKeys))
             : null;
     final saveLabel = _savingReminders ? '保存中…' : '保存';
-    if (isIos()) {
-      return IosNativeNavigationBar(
+
+    return AdaptiveNavigationScaffold.adaptiveBar(
+      ios: () => IosNativeNavigationBar(
         title: title,
         selectionMode: true,
         leadingItems: [
@@ -589,38 +765,40 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
               unawaited(_resetSelected(service, manageEpoch));
           }
         },
-      );
-    }
-
-    return BlurredAppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.close),
-        onPressed: _remindersBusy ? null : _exitSelection,
-        tooltip: '退出多选',
       ),
-      title: Text(title),
-      actions: [
-        IconButton(
-          icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
-          tooltip: allSelected ? '全不选' : '全选',
-          onPressed: _remindersBusy || visibleKeys.isEmpty ? null : () => _selectAll(visibleKeys),
+      material: () => BlurredAppBar(
+        leading: IconButton(
+          icon: const Icon(TpIcons.close),
+          onPressed: _remindersBusy ? null : _exitSelection,
+          tooltip: '退出多选',
         ),
-        if (_selectingReminders)
-          TextButton(onPressed: save, child: Text(saveLabel))
-        else ...[
+        title: Text(title),
+        actions: [
           IconButton(
-            icon: const Icon(Icons.flip_to_front),
-            tooltip: '反选',
-            onPressed: () => _invertSelection(visible),
+            icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
+            tooltip: allSelected ? '全不选' : '全选',
+            onPressed: _remindersBusy || visibleKeys.isEmpty
+                ? null
+                : () => _selectAll(visibleKeys),
           ),
-          IconButton(
-            icon: const Icon(Icons.restart_alt),
-            tooltip: '重置状态',
-            onPressed:
-                _selected.isEmpty ? null : () => unawaited(_resetSelected(service, manageEpoch)),
-          ),
+          if (_selectingReminders)
+            TextButton(onPressed: save, child: Text(saveLabel))
+          else ...[
+            IconButton(
+              icon: const Icon(Icons.flip_to_front),
+              tooltip: '反选',
+              onPressed: () => _invertSelection(visible),
+            ),
+            IconButton(
+              icon: const Icon(TpIcons.refresh),
+              tooltip: '重置状态',
+              onPressed: _selected.isEmpty
+                  ? null
+                  : () => unawaited(_resetSelected(service, manageEpoch)),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -643,10 +821,22 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
               onRefresh: () async => _refresh(service),
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  TpTokens.pageHorizontalPadding,
+                  TpTokens.space4,
+                  TpTokens.pageHorizontalPadding,
+                  AppShellMetrics.bottomContentPaddingOf(context),
+                ),
                 children: [
-                  SizedBox(
-                    height: MediaQuery.of(context).size.height * 0.6,
-                    child: _emptyState(context, service),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: MediaQuery.of(context).size.height * 0.55,
+                    ),
+                    child: Center(
+                      child: TpPageBody(
+                        child: _emptyState(context, service),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -666,33 +856,61 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
   }
 
   Widget _emptyState(BuildContext context, AssignmentService service) {
-    final theme = Theme.of(context);
-    final hasSources = ServiceProvider.of(context).thirdPartyAuthService.boundPlatforms.isNotEmpty;
-    return Center(
+    final colors = context.tpColors;
+    final hasSources = ServiceProvider.of(context)
+        .thirdPartyAuthService
+        .boundPlatforms
+        .isNotEmpty;
+    final title = !hasSources
+        ? '连接课程平台以获取Deadlines'
+        : service.loading
+            ? '正在同步截止日期…'
+            : !service.hasCachedData
+                ? '尚未成功同步截止日期'
+                : '近期暂无待办截止事项';
+
+    return TpCard(
+      padding: const EdgeInsets.symmetric(
+        horizontal: TpTokens.space5,
+        vertical: TpTokens.space6,
+      ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.assignment_turned_in_outlined,
-            size: 64,
-            color: theme.colorScheme.onSurfaceVariant,
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: colors.brandSoft,
+              borderRadius: BorderRadius.circular(TpTokens.radiusM),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              TpIcons.deadlines,
+              size: TpTokens.iconL + 4,
+              color: colors.brandInk,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: TpTokens.space4),
           Text(
-            !hasSources
-                ? '连接课程平台以获取Deadlines'
-                : service.loading
-                    ? '正在同步截止日期…'
-                    : !service.hasCachedData
-                        ? '尚未成功同步截止日期'
-                        : 'No upcoming deadlines',
-            style: theme.textTheme.titleMedium,
+            title,
+            style: TpTypography.cardTitle(colors).copyWith(fontSize: 16),
+            textAlign: TextAlign.center,
           ),
           if (!hasSources) ...[
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              icon: const Icon(Icons.link),
-              label: const Text('连接课程平台'),
+            const SizedBox(height: TpTokens.space2),
+            Text(
+              '绑定 eGate / Gradescope / Hydro 后将自动聚合全部作业与考试截止时间',
+              style: TpTypography.itemMeta(colors),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: TpTokens.space4),
+            AdaptiveButton(
+              icon: TpIcons.linkedAccounts,
+              sfSymbol: 'link',
+              label: '连接课程平台',
+              role: AdaptiveButtonRole.prominent,
+              height: 44,
               onPressed: () => unawaited(
                 pushAdaptivePage<void>(
                   context,
@@ -702,17 +920,29 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
             ),
           ],
           if (service.error != null) ...[
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                service.error!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
-                textAlign: TextAlign.center,
+            const SizedBox(height: TpTokens.space3),
+            Text(
+              service.error!,
+              style: TpTypography.itemMeta(colors).copyWith(
+                color: colors.dangerRed,
               ),
+              textAlign: TextAlign.center,
             ),
+            if (hasSources) ...[
+              const SizedBox(height: TpTokens.space4),
+              AdaptiveButton(
+                icon: TpIcons.refresh,
+                sfSymbol: 'arrow.clockwise',
+                label: '重新同步',
+                role: AdaptiveButtonRole.standard,
+                loading: service.loading,
+                width: 180,
+                height: 44,
+                onPressed: service.loading
+                    ? null
+                    : () => unawaited(_refresh(service)),
+              ),
+            ],
           ],
         ],
       ),
@@ -724,200 +954,314 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     AssignmentService service,
     List<Assignment> sorted,
   ) {
-    final theme = Theme.of(context);
+    final colors = context.tpColors;
     final now = DateTime.now();
 
     final uncompleted = sorted.where((a) => !service.isCompleted(a)).toList();
     final completed = sorted.where((a) => service.isCompleted(a)).toList()
       ..sort((a, b) => b.effectiveDue.compareTo(a.effectiveDue));
 
-    final overdue = uncompleted.where((a) => a.effectiveDue.isBefore(now)).toList()
+    final overdue = uncompleted
+        .where((a) => a.effectiveDue.isBefore(now))
+        .toList()
       ..sort((a, b) => a.effectiveDue.compareTo(b.effectiveDue));
-    final upcoming = uncompleted.where((a) => !a.effectiveDue.isBefore(now)).toList()
+    final upcoming = uncompleted
+        .where((a) => !a.effectiveDue.isBefore(now))
+        .toList()
       ..sort((a, b) {
-        final targetA =
-            (a.effectiveLateDue != null && a.due.isBefore(now)) ? a.effectiveLateDue! : a.due;
-        final targetB =
-            (b.effectiveLateDue != null && b.due.isBefore(now)) ? b.effectiveLateDue! : b.due;
+        final targetA = (a.effectiveLateDue != null && a.due.isBefore(now))
+            ? a.effectiveLateDue!
+            : a.due;
+        final targetB = (b.effectiveLateDue != null && b.due.isBefore(now))
+            ? b.effectiveLateDue!
+            : b.due;
         return targetA.compareTo(targetB);
       });
 
-    final todayLabel = DateFormat('yyyy-MM-dd EEE').format(now);
-    final itemLabel = sorted.any((item) => item is CustomDeadline) ? 'ddl' : _filteredItemLabel;
+    final todayShort = DateFormat('M/d').format(now);
+    final itemLabel = sorted.any((item) => item is CustomDeadline)
+        ? 'ddl'
+        : _filteredItemLabel;
+    final upcomingTitle = (!_showAssignments && !_showExams)
+        ? '即将截止 · 已隐藏全部'
+        : (_showAssignments && !_showExams)
+            ? '即将截止 · 仅作业'
+            : (!_showAssignments && _showExams)
+                ? '即将截止 · 仅考试'
+                : '即将截止';
 
-    return PageRefreshIndicator(
-      onRefresh: () async => _refresh(service),
-      child: ListView(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          8,
-          16,
-          AppShellMetrics.bottomContentPaddingOf(context),
-        ),
-        children: [
-          if (overdue.isNotEmpty) ...[
-            InkWell(
-              onTap: () => setState(() => _pastCollapsed = !_pastCollapsed),
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                child: Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = math.max(
+          TpTokens.pageHorizontalPadding,
+          (constraints.maxWidth - TpTokens.singleColumnMaxWidth) / 2,
+        );
+
+        return PageRefreshIndicator(
+          onRefresh: () async => _refresh(service),
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              TpTokens.space3,
+              horizontalPadding,
+              AppShellMetrics.bottomContentPaddingOf(context),
+            ),
+            children: [
+              // Hero grouped card mirroring TechPie website Deadlines view.
+              TpCard(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(
-                      _pastCollapsed ? Icons.chevron_right : Icons.expand_more,
-                      size: 20,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '已逾期 (${overdue.length})',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        TpTokens.cardPaddingHorizontal,
+                        TpTokens.cardPaddingVertical,
+                        TpTokens.cardPaddingHorizontal,
+                        TpTokens.space3,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    upcomingTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TpTypography.cardTitle(colors),
+                                  ),
+                                ),
+                                const SizedBox(width: TpTokens.space2),
+                                TpBadge(
+                                  label: '${upcoming.length} 项',
+                                  tone: upcoming.isEmpty
+                                      ? TpBadgeTone.muted
+                                      : TpBadgeTone.brand,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: TpTokens.space2),
+                          Text(
+                            upcoming.isEmpty ? '今天 $todayShort' : '按紧迫度排序',
+                            maxLines: 1,
+                            style: TpTypography.cardMeta(colors),
+                          ),
+                        ],
                       ),
                     ),
-                    const Spacer(),
-                    Text(
-                      _pastCollapsed ? '展开' : '折叠',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
+                    Divider(height: 1, thickness: 0.5, color: colors.divider),
+                    if (upcoming.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: TpTokens.cardPaddingHorizontal,
+                          vertical: TpTokens.space5,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '没有未完成的 $itemLabel',
+                              style: TpTypography.itemMeta(colors).copyWith(
+                                fontSize: 13.5,
+                              ),
+                            ),
+                            if (!_showAssignments && !_showExams) ...[
+                              const SizedBox(height: TpTokens.space2),
+                              TextButton(
+                                onPressed: () => setState(() {
+                                  _showAssignments = true;
+                                  _showExams = true;
+                                }),
+                                child: const Text('恢复显示全部'),
+                              ),
+                            ],
+                          ],
+                        ),
+                      )
+                    else
+                      for (var i = 0; i < upcoming.length; i++)
+                        _buildItem(
+                          context,
+                          service,
+                          upcoming[i],
+                          isLast: i == upcoming.length - 1,
+                        ),
                   ],
                 ),
               ),
-            ),
-            // One list child per card, not a Column of them: a single tall
-            // child skews the list's extent estimate until it is laid out.
-            if (!_pastCollapsed) ...overdue.map((a) => _buildItem(context, service, a)),
-            const SizedBox(height: 4),
-          ],
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              children: [
-                Expanded(child: Divider(color: theme.colorScheme.primary)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text(
-                    '今天 · $todayLabel',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
+              if (overdue.isNotEmpty) ...[
+                const SizedBox(height: TpTokens.sectionGap),
+                TpCard(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _SectionToggleRow(
+                        collapsed: _pastCollapsed,
+                        leadingIcon: TpIcons.deadlines,
+                        leadingColor: colors.dangerRed,
+                        actionColor: colors.dangerRed,
+                        label: '已逾期 (${overdue.length})',
+                        onTap: () {
+                          unawaited(AppHaptics.play(AppHaptics.selection));
+                          setState(() => _pastCollapsed = !_pastCollapsed);
+                        },
+                      ),
+                      AnimatedSize(
+                        duration: appAnimationDuration(
+                          context,
+                          TgMotion.medium,
+                        ),
+                        curve: TgMotion.easeOutQuint,
+                        alignment: Alignment.topCenter,
+                        clipBehavior: Clip.hardEdge,
+                        child: _pastCollapsed
+                            ? const SizedBox.shrink()
+                            : Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Divider(
+                                    height: 1,
+                                    thickness: 0.5,
+                                    color: colors.divider,
+                                  ),
+                                  for (var i = 0; i < overdue.length; i++)
+                                    _buildItem(
+                                      context,
+                                      service,
+                                      overdue[i],
+                                      isLast: i == overdue.length - 1,
+                                    ),
+                                ],
+                              ),
+                      ),
+                    ],
                   ),
                 ),
-                Expanded(child: Divider(color: theme.colorScheme.primary)),
               ],
-            ),
-          ),
-          if (upcoming.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Center(
-                child: Text(
-                  '没有未完成的 $itemLabel',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+              if (completed.isNotEmpty) ...[
+                const SizedBox(height: TpTokens.sectionGap),
+                TpCard(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _SectionToggleRow(
+                        collapsed: _completedCollapsed,
+                        leadingIcon: TpIcons.checkCircle,
+                        leadingColor: colors.successGreen,
+                        label: '已完成 (${completed.length})',
+                        onTap: () {
+                          unawaited(AppHaptics.play(AppHaptics.selection));
+                          setState(
+                            () => _completedCollapsed = !_completedCollapsed,
+                          );
+                        },
+                      ),
+                      AnimatedSize(
+                        duration: appAnimationDuration(
+                          context,
+                          TgMotion.medium,
+                        ),
+                        curve: TgMotion.easeOutQuint,
+                        alignment: Alignment.topCenter,
+                        clipBehavior: Clip.hardEdge,
+                        child: _completedCollapsed
+                            ? const SizedBox.shrink()
+                            : Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Divider(
+                                    height: 1,
+                                    thickness: 0.5,
+                                    color: colors.divider,
+                                  ),
+                                  for (var i = 0; i < completed.length; i++)
+                                    _buildItem(
+                                      context,
+                                      service,
+                                      completed[i],
+                                      isLast: i == completed.length - 1,
+                                    ),
+                                ],
+                              ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            )
-          else
-            ...upcoming.map((a) => _buildItem(context, service, a)),
-          if (completed.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            InkWell(
-              onTap: () => setState(() => _completedCollapsed = !_completedCollapsed),
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(
-                      _completedCollapsed ? Icons.chevron_right : Icons.expand_more,
-                      size: 20,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.check_circle_outline,
-                      size: 16,
-                      color: Colors.green,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '已完成 (${completed.length})',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      _completedCollapsed ? '展开' : '折叠',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (!_completedCollapsed) ...[
-              const SizedBox(height: 8),
-              ...completed.map((a) => _buildItem(context, service, a)),
+              ],
             ],
-          ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildItem(
     BuildContext context,
     AssignmentService service,
-    Assignment a,
-  ) {
+    Assignment a, {
+    required bool isLast,
+  }) {
     final key = AssignmentOverrides.keyFor(a);
     final epoch = service.identityEpoch;
     final selectionKey = _selectingReminders ? service.reminderKeyFor(a) : key;
     final selected = _selected.contains(selectionKey);
     final completed = service.isCompleted(a);
-    final scheme = Theme.of(context).colorScheme;
+    final colors = context.tpColors;
 
-    final card = _AssignmentCard(
+    final row = _AssignmentRow(
       assignment: a,
       completed: completed,
-      hasOverride: service.hasCompletionOverride(a),
+      showCompletionOverride: completed != a.submitted,
       selected: selected,
       selectionMode: _selectionMode && !_loadingReminders,
+      showDivider: !isLast,
       onTap: () => unawaited(_onTapItem(context, service, a, selectionKey)),
-      onLongPress: _selectionMode ? null : () => _enterSelectionWith(service, key, epoch),
+      onLongPress: _selectionMode
+          ? null
+          : () => _enterSelectionWith(service, key, epoch),
+      onQuickToggleComplete: isDesktop() && !_selectionMode
+          ? () => unawaited(_toggleCompleted(context, service, a))
+          : null,
+      onQuickHide: isDesktop() && !_selectionMode
+          ? () => _onDismiss(context, service, a, key)
+          : null,
     );
 
     final inner = _selectionMode
-        ? Padding(padding: const EdgeInsets.only(bottom: 12), child: card)
+        ? row
         : SwipeableCard(
+            borderRadius: BorderRadius.zero,
+            bottomMargin: 0,
             startAction: SwipeAction(
-              icon: completed ? Icons.cancel_outlined : Icons.check_circle_outline,
+              icon: completed ? TpIcons.close : TpIcons.checkCircle,
               label: completed ? '取消完成' : '标记完成',
-              background: scheme.primaryContainer,
-              foreground: scheme.onPrimaryContainer,
+              background: completed
+                  ? colors.surfaceSubtle
+                  : colors.successGreen
+                      .withValues(alpha: colors.isDark ? 0.24 : 0.14),
+              foreground: completed ? colors.textPrimary : colors.successGreen,
             ),
             endAction: SwipeAction(
-              icon: Icons.delete_outline,
+              icon: TpIcons.delete,
               label: '删除',
-              background: scheme.errorContainer,
-              foreground: scheme.onErrorContainer,
+              background:
+                  colors.dangerRed.withValues(alpha: colors.isDark ? 0.24 : 0.14),
+              foreground: colors.dangerRed,
             ),
             onStartSwipe: () => unawaited(_toggleCompleted(context, service, a)),
             onDismissed: () => _onDismiss(context, service, a, key),
-            child: card,
+            child: row,
           );
 
     // Stable key by override-key so swapping selection mode keeps the
-    // entry animation from re-triggering. Each new key (unhide, undo,
-    // first appearance) plays the enter animation; existing items just
-    // rebuild in place.
+    // entry animation from re-triggering.
     return CardEnterAnimation(key: ValueKey(key), child: inner);
   }
 
@@ -966,7 +1310,6 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     Assignment a,
     String key,
   ) async {
-    final usesIosContextualFeedback = isIos();
     if (_selectionMode) {
       _toggleSelection(key);
       return;
@@ -978,420 +1321,748 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     final url = a.url;
     if (url == null || url.isEmpty) {
       final itemLabel = a.kind == DeadlineKind.exam ? '考试' : '作业';
-      if (usesIosContextualFeedback) {
-        await showAdaptiveAlertDialog<void>(
-          context: context,
-          title: '无法打开$itemLabel',
-          message: '这个$itemLabel没有可打开的链接。',
-          actions: const [
-            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
-          ],
-        );
-      } else {
-        showAdaptiveFeedback(
-          context: context,
-          message: '该$itemLabel没有链接',
-          style: AdaptiveFeedbackStyle.info,
-        );
-      }
+      await showAdaptiveContextualNotice(
+        context: context,
+        iosTitle: '无法打开$itemLabel',
+        iosMessage: '这个$itemLabel没有可打开的链接。',
+        feedbackMessage: '该$itemLabel没有链接',
+      );
       return;
     }
     final uri = Uri.tryParse(url);
     if (uri == null) {
-      if (usesIosContextualFeedback) {
-        await showAdaptiveAlertDialog<void>(
-          context: context,
-          title: '无法打开作业',
-          message: '链接格式无效。',
-          actions: const [
-            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
-          ],
-        );
-      } else {
-        showAdaptiveFeedback(
-          context: context,
-          message: '链接无法解析',
-          style: AdaptiveFeedbackStyle.error,
-        );
-      }
+      await showAdaptiveContextualNotice(
+        context: context,
+        iosTitle: '无法打开作业',
+        iosMessage: '链接格式无效。',
+        feedbackMessage: '链接无法解析',
+        style: AdaptiveFeedbackStyle.error,
+      );
       return;
     }
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
-      if (usesIosContextualFeedback) {
-        await showAdaptiveAlertDialog<void>(
-          context: context,
-          title: '无法打开作业',
-          message: '目前无法打开这个链接。',
-          actions: const [
-            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
-          ],
-        );
-      } else {
-        showAdaptiveFeedback(
-          context: context,
-          message: '无法打开链接',
-          style: AdaptiveFeedbackStyle.error,
-        );
-      }
+      await showAdaptiveContextualNotice(
+        context: context,
+        iosTitle: '无法打开作业',
+        iosMessage: '目前无法打开这个链接。',
+        feedbackMessage: '无法打开链接',
+        style: AdaptiveFeedbackStyle.error,
+      );
     }
   }
 }
 
-class _PlatformErrorsBanner extends StatelessWidget {
+class _SectionToggleRow extends StatelessWidget {
+  const _SectionToggleRow({
+    required this.collapsed,
+    required this.leadingIcon,
+    required this.leadingColor,
+    required this.label,
+    required this.onTap,
+    this.actionColor,
+  });
+
+  final bool collapsed;
+  final IconData leadingIcon;
+  final Color leadingColor;
+  final String label;
+  final VoidCallback onTap;
+  final Color? actionColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.tpColors;
+    final trailingColor = actionColor ?? colors.textMuted;
+    return InkWell(
+      onTap: onTap,
+      hoverColor: colors.textPrimary.withValues(
+        alpha: colors.isDark ? 0.06 : 0.04,
+      ),
+      splashColor: colors.brandSoft,
+      highlightColor: colors.surfacePressed.withValues(alpha: 0.35),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: TpTokens.cardPaddingHorizontal,
+          vertical: TpTokens.space3,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              leadingIcon,
+              size: TpTokens.iconS,
+              color: leadingColor,
+            ),
+            const SizedBox(width: TpTokens.space2),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TpTypography.cardTitle(colors).copyWith(fontSize: 14),
+              ),
+            ),
+            const SizedBox(width: TpTokens.space2),
+            Text(
+              collapsed ? '展开' : '收起',
+              style: TpTypography.cardMeta(colors).copyWith(
+                color: trailingColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(width: 2),
+            AnimatedRotation(
+              turns: collapsed ? 0.0 : 0.25,
+              duration: appAnimationDuration(context, TgMotion.short),
+              curve: TgMotion.easeOutQuint,
+              child: Icon(
+                Icons.chevron_right,
+                size: TpTokens.iconS + 2,
+                color: trailingColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlatformErrorsBanner extends StatefulWidget {
   final AssignmentService service;
   const _PlatformErrorsBanner({required this.service});
 
   @override
-  Widget build(BuildContext context) {
-    final errors = service.platformErrors;
-    if (errors.isEmpty) return const SizedBox.shrink();
-    final theme = Theme.of(context);
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: errors.entries.map((entry) {
-        return Material(
-          color: theme.colorScheme.errorContainer,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.error_outline,
-                  size: 20,
-                  color: theme.colorScheme.onErrorContainer,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '${entry.key}: ${entry.value}',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  onPressed: () => unawaited(service.fetchPlatform(entry.key)),
-                  color: theme.colorScheme.onErrorContainer,
-                  tooltip: '重试 ${entry.key}',
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
+  State<_PlatformErrorsBanner> createState() => _PlatformErrorsBannerState();
 }
 
-class _DeadlineKindChip extends StatelessWidget {
-  final DeadlineKind kind;
+class _PlatformErrorsBannerState extends State<_PlatformErrorsBanner> {
+  final Set<String> _retrying = <String>{};
 
-  const _DeadlineKindChip({required this.kind});
+  Future<void> _retryPlatform(String platform) async {
+    if (!_retrying.add(platform)) return;
+    setState(() {});
+    try {
+      await widget.service.fetchPlatform(platform);
+    } finally {
+      if (mounted) {
+        setState(() => _retrying.remove(platform));
+      } else {
+        _retrying.remove(platform);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isExam = kind == DeadlineKind.exam;
-    final background =
-        isExam ? theme.colorScheme.tertiaryContainer : theme.colorScheme.primaryContainer;
-    final foreground =
-        isExam ? theme.colorScheme.onTertiaryContainer : theme.colorScheme.onPrimaryContainer;
+    final errors = widget.service.platformErrors;
+    if (errors.isEmpty) return const SizedBox.shrink();
+    final colors = context.tpColors;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(4),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        TpTokens.pageHorizontalPadding,
+        TpTokens.space2,
+        TpTokens.pageHorizontalPadding,
+        0,
       ),
-      child: Text(
-        kind.label,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.bold,
+      child: TpPageBody(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final entry in errors.entries)
+              Padding(
+                padding: const EdgeInsets.only(bottom: TpTokens.space2),
+                child: TpCard(
+                  color: colors.opaqueDangerContainer,
+                  borderColor: colors.dangerRed.withValues(alpha: 0.30),
+                  borderRadius: TpTokens.radiusS,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: TpTokens.space3,
+                    vertical: TpTokens.space2,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        TpIcons.info,
+                        size: TpTokens.iconS,
+                        color: colors.dangerRed,
+                      ),
+                      const SizedBox(width: TpTokens.space2),
+                      Expanded(
+                        child: Text(
+                          '${entry.key}: ${entry.value}',
+                          style: TpTypography.itemMeta(colors).copyWith(
+                            color: colors.dangerRed,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: _retrying.contains(entry.key)
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: colors.dangerRed,
+                                ),
+                              )
+                            : const Icon(TpIcons.refresh, size: TpTokens.iconS),
+                        onPressed: _retrying.contains(entry.key)
+                            ? null
+                            : () => unawaited(_retryPlatform(entry.key)),
+                        color: colors.dangerRed,
+                        tooltip: '重试 ${entry.key}',
+                        constraints: const BoxConstraints.tightFor(
+                          width: 36,
+                          height: 36,
+                        ),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-String _formatRemainingTime(
-  DateTime due,
-  DateTime now, {
-  String prefix = 'Remain',
-}) {
-  final diff = due.difference(now);
-  if (diff.isNegative || diff.inSeconds <= 0) {
-    return 'Overdue';
-  }
-  final days = diff.inDays;
-  final hours = (diff.inHours % 24).toString().padLeft(2, '0');
-  final minutes = (diff.inMinutes % 60).toString().padLeft(2, '0');
-  final seconds = (diff.inSeconds % 60).toString().padLeft(2, '0');
-  if (days > 0) {
-    return '$prefix: ${days}d $hours:$minutes:$seconds';
-  }
-  return '$prefix: $hours:$minutes:$seconds';
+String _formatPlatformLabel(String platform) {
+  return switch (platform.trim().toLowerCase()) {
+    'blackboard' => 'Blackboard',
+    'gradescope' => 'Gradescope',
+    'hydro' => 'Hydro',
+    'elearning' => 'eLearning',
+    'egate' => 'eGate',
+    'exam' || 'custom' || '' => '',
+    final other => other[0].toUpperCase() + other.substring(1),
+  };
 }
 
-class _AssignmentCard extends StatelessWidget {
+String _formatRemainingLabel(
+  DateTime due,
+  DateTime now, {
+  bool late = false,
+}) {
+  final diff = due.difference(now);
+  final prefix = late ? '迟交剩余 ' : '剩余 ';
+  if (diff.isNegative || diff.inSeconds <= 0) {
+    return '已逾期';
+  }
+  final days = diff.inDays;
+  final remHours = diff.inHours % 24;
+  if (days >= 3) {
+    return '$prefix$days 天';
+  }
+  if (days >= 1) {
+    return remHours > 0 ? '$prefix$days 天 $remHours 小时' : '$prefix$days 天';
+  }
+  final hours = diff.inHours.toString().padLeft(2, '0');
+  final minutes = (diff.inMinutes % 60).toString().padLeft(2, '0');
+  final seconds = (diff.inSeconds % 60).toString().padLeft(2, '0');
+  return '$prefix$hours:$minutes:$seconds';
+}
+
+String _formatOverdueLabel(DateTime due, DateTime now) {
+  final diff = now.difference(due);
+  if (diff.inDays >= 1) {
+    return '已逾期 ${diff.inDays} 天';
+  }
+  if (diff.inHours >= 1) {
+    return '已逾期 ${diff.inHours} 小时';
+  }
+  return '已逾期';
+}
+
+double _urgencyProgress({
+  required DateTime due,
+  required DateTime now,
+  required bool completed,
+  required bool isPast,
+  required bool isLateWindow,
+}) {
+  if (completed || isPast || isLateWindow) return 1.0;
+  final hoursLeft = due.difference(now).inMinutes / 60.0;
+  if (hoursLeft <= 0) return 1.0;
+  if (hoursLeft <= 24) {
+    return (0.98 - (hoursLeft / 24.0) * 0.13).clamp(0.85, 0.98);
+  }
+  if (hoursLeft <= 7 * 24) {
+    return (0.85 - ((hoursLeft - 24.0) / (6 * 24.0)) * 0.60).clamp(0.25, 0.85);
+  }
+  return 0.15;
+}
+
+class _AssignmentRow extends StatefulWidget {
   final Assignment assignment;
   final bool completed;
-  final bool hasOverride;
+  final bool showCompletionOverride;
   final bool selected;
   final bool selectionMode;
+  final bool showDivider;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+  final VoidCallback? onQuickToggleComplete;
+  final VoidCallback? onQuickHide;
 
-  const _AssignmentCard({
+  const _AssignmentRow({
     required this.assignment,
     required this.completed,
-    required this.hasOverride,
+    required this.showCompletionOverride,
     required this.selected,
     required this.selectionMode,
+    required this.showDivider,
     required this.onTap,
     required this.onLongPress,
+    this.onQuickToggleComplete,
+    this.onQuickHide,
   });
 
   @override
+  State<_AssignmentRow> createState() => _AssignmentRowState();
+}
+
+class _AssignmentRowState extends State<_AssignmentRow> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final assignment = widget.assignment;
+    final completed = widget.completed;
+    final selected = widget.selected;
+    final colors = context.tpColors;
     final now = DateTime.now();
     final lateDue = assignment.effectiveLateDue;
     final finalDue = assignment.effectiveDue;
     final isPast = finalDue.isBefore(now);
-    final isLateWindow = !completed && lateDue != null && assignment.due.isBefore(now) && !isPast;
+    final isLateWindow = !completed &&
+        lateDue != null &&
+        assignment.due.isBefore(now) &&
+        !isPast;
 
-    final formatter = DateFormat('MM/dd HH:mm');
     final displayDue = isLateWindow ? lateDue : assignment.due;
-    final dueLabel = isLateWindow ? 'Late Due: ' : 'Due: ';
-    final dueString = formatter.format(displayDue);
+    final hoursLeft = displayDue.difference(now).inHours;
+    final isCalm = !completed && !isPast && !isLateWindow && hoursLeft >= 72;
+    final dueShort = DateFormat('MM/dd HH:mm').format(displayDue);
+
     final subtitle = switch (assignment) {
       ExamAssignment(:final location) => location.trim(),
-      _ => assignment.course,
+      CustomDeadline(:final course, :final location) => [
+          if (course.isNotEmpty) course,
+          if (location.isNotEmpty) location,
+        ].join(' · '),
+      _ => assignment.course.trim(),
+    };
+    final notes = switch (assignment) {
+      CustomDeadline(:final notes) => notes.trim(),
+      _ => '',
     };
 
-    Color statusColor() {
-      if (completed) return Colors.green;
-      if (isPast || isLateWindow) return Colors.red;
-      final hoursLeft = displayDue.difference(now).inHours;
-      if (hoursLeft < 24) return Colors.orange;
-      return theme.colorScheme.primary;
-    }
+    final Color urgencyColor = () {
+      if (completed) return colors.successGreen;
+      if (isPast || isLateWindow) return colors.dangerRed;
+      if (hoursLeft < 24) return colors.dangerRed;
+      if (hoursLeft < 72) return colors.warningAmber;
+      return colors.infoBlue;
+    }();
+    final Color countdownColor = isCalm ? colors.textMuted : urgencyColor;
 
-    final statusLabel = assignment.status;
+    final progress = _urgencyProgress(
+      due: displayDue,
+      now: now,
+      completed: completed,
+      isPast: isPast,
+      isLateWindow: isLateWindow,
+    );
 
-    return Card(
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      color: selected ? theme.colorScheme.secondaryContainer : null,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: selected ? BorderSide(color: theme.colorScheme.primary, width: 2) : BorderSide.none,
-      ),
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    final completedStatusLabel = (completed && assignment is! CustomDeadline)
+        ? (assignment.status == 'Graded' ? 'Graded' : 'Submitted')
+        : null;
+
+    final platformLabel = _formatPlatformLabel(assignment.platform);
+    final metaLeft = switch (assignment) {
+      CustomDeadline() => subtitle,
+      ExamAssignment() => [
+          if (subtitle.isNotEmpty) subtitle,
+          if (assignment.course.isNotEmpty &&
+              assignment.course.trim() != assignment.title.trim())
+            assignment.course.trim(),
+        ].join(' · '),
+      _ => [
+          if (subtitle.isNotEmpty) subtitle,
+          if (platformLabel.isNotEmpty) platformLabel,
+          if (lateDue != null && !isLateWindow && !completed) '支持迟交',
+        ].join(' · '),
+    };
+
+    final dueText = isLateWindow
+        ? '迟交截止 $dueShort'
+        : (isPast && !completed
+            ? '原截止 $dueShort'
+            : (assignment is ExamAssignment ? dueShort : '$dueShort 截止'));
+
+    final showQuickActions =
+        widget.onQuickToggleComplete != null || widget.onQuickHide != null;
+
+    final Widget countdownWidget = completed
+        ? Row(
+            key: const ValueKey('completed'),
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  if (selectionMode) ...[
-                    Icon(
-                      selected ? Icons.check_circle : Icons.radio_button_unchecked,
-                      size: 20,
-                      color: selected ? theme.colorScheme.primary : theme.colorScheme.outline,
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  _DeadlineKindChip(kind: assignment.kind),
-                  if (assignment is! CustomDeadline) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        assignment.platform.toUpperCase(),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSecondaryContainer,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (hasOverride) ...[
-                    const SizedBox(width: 6),
-                    Tooltip(
-                      message: '本地标记',
-                      child: Icon(
-                        Icons.edit_note,
-                        size: 18,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
-                  AnimatedSwitcher(
-                    duration: appAnimationDuration(
-                      context,
-                      const Duration(milliseconds: 280),
-                    ),
-                    switchInCurve: isIos() ? Curves.easeInOut : Curves.easeInOutCubicEmphasized,
-                    switchOutCurve: isIos() ? Curves.easeInOut : Curves.easeInOutCubicEmphasized,
-                    transitionBuilder: (child, animation) => FadeTransition(
-                      opacity: animation,
-                      child: ScaleTransition(scale: animation, child: child),
-                    ),
-                    child: statusLabel == null
-                        ? const SizedBox.shrink()
-                        : Text(
-                            statusLabel,
-                            key: ValueKey(statusLabel),
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: statusColor(),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                  ),
-                ],
+              Icon(
+                TpIcons.checkCircle,
+                size: 13,
+                color: colors.successGreen,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(width: 4),
               Text(
-                assignment.title,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                '已完成',
+                style: TpTypography.badge(colors.successGreen),
               ),
-              if (subtitle.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+            ],
+          )
+        : (isPast
+            ? Text(
+                _formatOverdueLabel(finalDue, now),
+                key: const ValueKey('overdue'),
+                maxLines: 1,
+                style: TpTypography.badge(colors.dangerRed),
+              )
+            : (isLateWindow
+                ? Text(
+                    _formatRemainingLabel(lateDue, now, late: true),
+                    key: const ValueKey('late_remain'),
+                    maxLines: 1,
+                    style: TpTypography.badge(colors.dangerRed),
+                  )
+                : Text(
+                    _formatRemainingLabel(assignment.due, now),
+                    key: const ValueKey('remain'),
+                    maxLines: 1,
+                    style: TpTypography.badge(countdownColor).copyWith(
+                      fontSize: 12,
+                      fontWeight: isCalm ? FontWeight.w500 : FontWeight.w600,
+                    ),
+                  )));
+
+    return MouseRegion(
+      onEnter: (_) {
+        if (!_hovered) setState(() => _hovered = true);
+      },
+      onExit: (_) {
+        if (_hovered) setState(() => _hovered = false);
+      },
+      child: Material(
+        color: selected ? colors.opaqueBrandContainer : colors.surface,
+        child: InkWell(
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          hoverColor: colors.textPrimary.withValues(
+            alpha: colors.isDark ? 0.06 : 0.04,
+          ),
+          splashColor: colors.brandSoft,
+          highlightColor: colors.surfacePressed.withValues(alpha: 0.35),
+          child: DecoratedBox(
+            decoration: selected
+                ? BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: colors.brand, width: 3),
+                    ),
+                  )
+                : const BoxDecoration(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: TpTokens.cardPaddingHorizontal,
+                    vertical: 11,
                   ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.access_time,
-                        size: 16,
-                        color: completed
-                            ? theme.colorScheme.onSurfaceVariant
-                            : (isPast || isLateWindow
-                                ? Colors.red
-                                : theme.colorScheme.onSurfaceVariant),
+                      // Row 1: Title + Urgency Countdown + subtle desktop quick actions.
+                      // Exactly ONE flex child (Expanded on the left) guarantees
+                      // countdown & actions are always pinned flush to the right edge.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          if (widget.selectionMode) ...[
+                            Icon(
+                              selected
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              size: TpTokens.iconM - 1,
+                              color:
+                                  selected ? colors.brandInk : colors.textMuted,
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          Expanded(
+                            child: Row(
+                              children: [
+                                if (assignment.kind == DeadlineKind.exam) ...[
+                                  const _CompactKindTag(
+                                    label: '考试',
+                                    tone: TpBadgeTone.danger,
+                                  ),
+                                  const SizedBox(width: 6),
+                                ] else if (assignment.kind ==
+                                    DeadlineKind.custom) ...[
+                                  const _CompactKindTag(
+                                    label: '自定义',
+                                    tone: TpBadgeTone.info,
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                Flexible(
+                                  child: Text(
+                                    assignment.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                        TpTypography.itemTitle(colors).copyWith(
+                                      fontSize: 14.5,
+                                      height: 1.3,
+                                      color: completed
+                                          ? colors.textSecondary
+                                          : colors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                if (widget.showCompletionOverride) ...[
+                                  const SizedBox(width: 5),
+                                  Tooltip(
+                                    message: '本地标记',
+                                    child: Icon(
+                                      TpIcons.edit,
+                                      size: 12,
+                                      color: colors.brandInk,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: TpTokens.space3),
+                          AnimatedSwitcher(
+                            duration: appAnimationDuration(
+                              context,
+                              const Duration(milliseconds: 240),
+                            ),
+                            switchInCurve: appAnimationCurve(
+                              Curves.easeOutCubic,
+                              iosCurve: Curves.easeOut,
+                            ),
+                            switchOutCurve: appAnimationCurve(
+                              Curves.easeInCubic,
+                              iosCurve: Curves.easeIn,
+                            ),
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                              opacity: animation,
+                              child: child,
+                            ),
+                            child: countdownWidget,
+                          ),
+                          if (showQuickActions) ...[
+                            const SizedBox(width: 6),
+                            AnimatedOpacity(
+                              opacity: _hovered ? 1.0 : 0.42,
+                              duration: appAnimationDuration(
+                                context,
+                                const Duration(milliseconds: 140),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (widget.onQuickToggleComplete != null)
+                                    IconButton(
+                                      icon: Icon(
+                                        completed
+                                            ? TpIcons.close
+                                            : TpIcons.checkCircle,
+                                        size: 15,
+                                      ),
+                                      color: completed
+                                          ? colors.textMuted
+                                          : colors.successGreen,
+                                      tooltip: completed ? '取消完成' : '标记完成',
+                                      visualDensity: VisualDensity.compact,
+                                      style: IconButton.styleFrom(
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      constraints: const BoxConstraints.tightFor(
+                                        width: 24,
+                                        height: 24,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      onPressed: widget.onQuickToggleComplete,
+                                    ),
+                                  if (widget.onQuickHide != null)
+                                    IconButton(
+                                      icon: const Icon(
+                                        TpIcons.delete,
+                                        size: 15,
+                                      ),
+                                      color: colors.textMuted,
+                                      hoverColor: colors.dangerRed
+                                          .withValues(alpha: 0.10),
+                                      tooltip: '忽略',
+                                      visualDensity: VisualDensity.compact,
+                                      style: IconButton.styleFrom(
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      constraints: const BoxConstraints.tightFor(
+                                        width: 24,
+                                        height: 24,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      onPressed: widget.onQuickHide,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          '$dueLabel$dueString',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: completed
-                                ? theme.colorScheme.onSurfaceVariant
-                                : (isPast || isLateWindow
-                                    ? Colors.red
-                                    : theme.colorScheme.onSurfaceVariant),
-                            fontWeight: (isPast || isLateWindow) && !completed
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                      const SizedBox(height: 3),
+                      // Row 2: Single subtle metadata line (course · platform | due time).
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              metaLeft.isNotEmpty
+                                  ? metaLeft
+                                  : (assignment is CustomDeadline
+                                      ? '自定义截止事项'
+                                      : '截止事项'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TpTypography.itemMeta(colors).copyWith(
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: TpTokens.space2),
+                          if (completedStatusLabel != null) ...[
+                            Text(
+                              completedStatusLabel,
+                              maxLines: 1,
+                              style: TpTypography.itemMeta(colors).copyWith(
+                                fontSize: 11.5,
+                                color: colors.successGreen,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              ' · $dueShort',
+                              maxLines: 1,
+                              style: TpTypography.itemMeta(colors).copyWith(
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ] else
+                            Text(
+                              dueText,
+                              maxLines: 1,
+                              style: TpTypography.itemMeta(colors).copyWith(
+                                fontSize: 11.5,
+                                color: !completed && (isPast || isLateWindow)
+                                    ? colors.dangerRed
+                                    : colors.textMuted,
+                                fontWeight:
+                                    !completed && (isPast || isLateWindow)
+                                        ? FontWeight.w500
+                                        : FontWeight.w400,
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (notes.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          notes,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TpTypography.itemMeta(colors).copyWith(
+                            fontSize: 12,
                           ),
                         ),
+                      ],
+                      const SizedBox(height: TpTokens.space2),
+                      // Row 3: Thin rounded urgency progress bar.
+                      TpProgressBar(
+                        progress: progress,
+                        color: completed
+                            ? urgencyColor.withValues(alpha: 0.45)
+                            : urgencyColor,
                       ),
                     ],
                   ),
-                  AnimatedSwitcher(
-                    duration: appAnimationDuration(
-                      context,
-                      const Duration(milliseconds: 320),
+                ),
+                if (widget.showDivider)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: TpTokens.cardPaddingHorizontal,
                     ),
-                    switchInCurve: isIos() ? Curves.easeOut : Curves.easeOutBack,
-                    switchOutCurve: isIos() ? Curves.easeIn : Curves.easeInCubic,
-                    transitionBuilder: (child, animation) => FadeTransition(
-                      opacity: animation,
-                      child: ScaleTransition(scale: animation, child: child),
+                    child: Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      color: colors.divider,
                     ),
-                    child: completed
-                        ? Row(
-                            key: const ValueKey('completed'),
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.check_circle,
-                                size: 16,
-                                color: Colors.green,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '已完成',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          )
-                        : (isPast
-                            ? Text(
-                                'Overdue',
-                                key: const ValueKey('overdue'),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.red,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              )
-                            : (isLateWindow
-                                ? Text(
-                                    _formatRemainingTime(
-                                      lateDue,
-                                      now,
-                                      prefix: 'Late',
-                                    ),
-                                    key: const ValueKey('late_remain'),
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.red,
-                                      fontWeight: FontWeight.bold,
-                                      fontFeatures: const [
-                                        FontFeature.tabularFigures(),
-                                      ],
-                                    ),
-                                  )
-                                : Text(
-                                    _formatRemainingTime(assignment.due, now),
-                                    key: const ValueKey('remain'),
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                      fontFeatures: const [
-                                        FontFeature.tabularFigures(),
-                                      ],
-                                    ),
-                                  ))),
                   ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _CompactKindTag extends StatelessWidget {
+  const _CompactKindTag({
+    required this.label,
+    required this.tone,
+  });
+
+  final String label;
+  final TpBadgeTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.tpColors;
+    final alpha = colors.isDark ? 0.18 : 0.11;
+    final (fg, bg) = switch (tone) {
+      TpBadgeTone.danger => (
+          colors.dangerRed,
+          colors.dangerRed.withValues(alpha: alpha),
+        ),
+      TpBadgeTone.info => (
+          colors.infoBlue,
+          colors.infoBlue.withValues(alpha: alpha),
+        ),
+      _ => (colors.brandInk, colors.brandSoft),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(TpTokens.radiusXs),
+      ),
+      child: Text(
+        label,
+        style: TpTypography.badge(fg).copyWith(fontSize: 10.5),
       ),
     );
   }

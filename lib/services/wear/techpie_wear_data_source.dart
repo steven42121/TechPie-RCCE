@@ -5,11 +5,14 @@ import 'package:crypto/crypto.dart';
 
 import '../../features/campus_card/domain/models/card_models.dart';
 import '../../models/assignment_overrides.dart';
+import '../../models/exam_course.dart';
 import '../assignment_service.dart';
 import '../auth_service.dart';
 import '../campus_card_service.dart';
+import '../schedule_service.dart';
 import '../third_party_auth_service.dart';
 import 'wear_protocol.dart';
+import 'wear_schedule.dart';
 
 class TechPieWearDataSource implements WearDataSource {
   TechPieWearDataSource({
@@ -17,12 +20,14 @@ class TechPieWearDataSource implements WearDataSource {
     required this.accounts,
     required this.assignments,
     required this.campusCard,
+    required this.timetable,
     this.reminderOffsets = const [Duration(hours: 1)],
   });
   final AuthService auth;
   final ThirdPartyAuthService accounts;
   final AssignmentService assignments;
   final CampusCardService campusCard;
+  final ScheduleService timetable;
 
   /// Product default: one hour before each open deadline; opt-in at WearLink.open.
   final List<Duration> reminderOffsets;
@@ -37,8 +42,7 @@ class TechPieWearDataSource implements WearDataSource {
     final studentId = campus == null ? session.studentId : campus.idsStudentId;
     final ecardId = await campusCard.readOpenId();
     return WearAccount(
-      scope:
-          jsonEncode([session.userId, campus?.account, campus?.idsStudentId, ecardId]),
+      scope: jsonEncode([session.userId, campus?.account, campus?.idsStudentId, ecardId]),
       name: name,
       studentId: studentId,
     )..toJson();
@@ -53,9 +57,7 @@ class TechPieWearDataSource implements WearDataSource {
       throw const WearFailure('SERVICE_UNAVAILABLE', retryable: true);
     }
     return assignments.visibleAssignments.map((assignment) {
-      final id = sha256
-          .convert(utf8.encode(AssignmentOverrides.keyFor(assignment)))
-          .toString();
+      final id = sha256.convert(utf8.encode(AssignmentOverrides.keyFor(assignment))).toString();
       final complete = assignments.isCompleted(assignment);
       return WearDdl(
         id: id,
@@ -71,6 +73,33 @@ class TechPieWearDataSource implements WearDataSource {
                 .toList(),
       );
     }).toList();
+  }
+
+  Future<String> _watchOwner() async => 'wear:${sha256.convert(utf8.encode((await account()).scope))}';
+
+  Future<void> adoptCurrentSchedule() async => timetable.adoptLegacyCourseTable(await _watchOwner());
+
+  @override
+  Future<List<WearCourse>> schedule(DateTime from) async {
+    final watchOwner = await _watchOwner();
+    if (timetable.loading) {
+      throw const WearFailure('PEER_NOT_READY', retryable: true);
+    }
+    final table = timetable.courseTableForWatch(watchOwner);
+    final begin = timetable.termBegin;
+    if (table == null || begin == null) {
+      throw const WearFailure('SERVICE_UNAVAILABLE', retryable: true);
+    }
+    return buildWearSchedule(
+      table: table,
+      termBegin: begin,
+      from: from,
+      customCourses: timetable.customCourses,
+      exams: examsForSemester(
+        assignments.assignments,
+        timetable.selectedSemesterId,
+      ),
+    );
   }
 
   @override
@@ -102,6 +131,18 @@ class TechPieWearDataSource implements WearDataSource {
     );
   }
 
-  String _truncate(String value, int count) =>
-      String.fromCharCodes(value.runes.take(count));
+  Future<Map<String, Object?>?> offlineCredential() async {
+    final before = await account();
+    final card = await campusCard.runtime.cards.currentCard();
+    if (card == null ||
+        !card.status.permitsPayment ||
+        card.ownerName.trim() != before.name.trim()) {
+      return null;
+    }
+    final credential = await campusCard.runtime.offlinePayments.exportForWatch(card.id);
+    if ((await account()).scope != before.scope) throw const WearFailure('SESSION_MISMATCH');
+    return credential?.toMessage();
+  }
+
+  String _truncate(String value, int count) => String.fromCharCodes(value.runes.take(count));
 }

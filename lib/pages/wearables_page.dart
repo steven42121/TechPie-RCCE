@@ -6,6 +6,7 @@ import '../models/wearable_device.dart';
 import '../services/band_service.dart';
 import '../services/service_provider.dart';
 import '../utils/platform.dart';
+import '../widgets/adaptive_navigation_scaffold.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
@@ -38,7 +39,7 @@ class _WearablesPageState extends State<WearablesPage> {
     if (stored != null) return stored;
     // iOS keeps its paired Apple Watch entry; bands are user-added only —
     // an empty list is the truth for a fresh install, not a default model.
-    if (isIos()) return const [appleWatchDevice];
+    if (supportsAppleWatch()) return const [appleWatchDevice];
     return const [];
   }
 
@@ -51,7 +52,7 @@ class _WearablesPageState extends State<WearablesPage> {
     final options = <WearableDevice>[
       ...wearableBandCatalog,
       if (isAndroid()) huaweiWatchDevice,
-      if (isIos()) appleWatchDevice,
+      if (supportsAppleWatch()) appleWatchDevice,
     ];
     final selected = await showDialog<WearableDevice>(
       context: context,
@@ -129,7 +130,7 @@ class _WearablesPageState extends State<WearablesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final useIosChrome = isIos();
+    final useIosChrome = !AdaptiveNavigationScaffold.extendsBodyBehindAppBar();
     return Scaffold(
       extendBodyBehindAppBar: !useIosChrome,
       appBar: useIosChrome

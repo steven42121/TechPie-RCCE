@@ -19,7 +19,7 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
-static void deadline_call(FlMethodChannel* channel, FlMethodCall* call, gpointer data) {
+static void deadline_call(FlMethodChannel* /*channel*/, FlMethodCall* call, gpointer data) {
   MyApplication* self = MY_APPLICATION(data);
   const gchar* method = fl_method_call_get_name(call);
   g_autoptr(FlMethodResponse) response = nullptr;
@@ -109,14 +109,17 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
-  delete self->uni_auth_window;
-  self->uni_auth_window = new UniAuthWindow(
-      fl_engine_get_binary_messenger(fl_view_get_engine(view)), window);
+  if (self->deadline_channel) {
+    fl_method_channel_set_method_call_handler(self->deadline_channel, nullptr, nullptr, nullptr);
+  }
   g_clear_object(&self->deadline_channel);
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   self->deadline_channel = fl_method_channel_new(fl_engine_get_binary_messenger(fl_view_get_engine(view)),
       "techpie/deadline_widgets", FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(self->deadline_channel, deadline_call, self, nullptr);
+  delete self->uni_auth_window;
+  self->uni_auth_window = new UniAuthWindow(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)), window);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -192,6 +195,9 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   delete self->uni_auth_window;
   self->uni_auth_window = nullptr;
+  if (self->deadline_channel) {
+    fl_method_channel_set_method_call_handler(self->deadline_channel, nullptr, nullptr, nullptr);
+  }
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->deadline_channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);

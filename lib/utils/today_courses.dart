@@ -6,8 +6,7 @@ import '../services/assignment_service.dart';
 import '../services/schedule_service.dart';
 
 /// The sessions scheduled for [day], timetable + custom + exam entries merged,
-/// in period order. The home page and the schedule island read a day through
-/// this so the two cannot disagree about what "today's classes" means.
+/// in clock order. Supports both undergraduate and graduate timetables.
 List<Course> coursesOnDay(
   ScheduleService schedule,
   AssignmentService assignments,
@@ -19,25 +18,29 @@ List<Course> coursesOnDay(
       : defaultPeriods;
   final begin = schedule.termBegin;
   final date = DateTime(day.year, day.month, day.day);
-  final firstDay = begin == null ? null : DateTime(begin.year, begin.month, begin.day);
-  final week = schedule.isGraduate
-      ? teachingWeekOf(date, begin) ?? 0
-      : firstDay == null
-          ? 1
-          : date.difference(firstDay).inDays ~/ 7 + 1;
-  if (firstDay != null && (date.isBefore(firstDay) || week > schedule.totalWeeks)) {
-    return const [];
+  final firstDay =
+      begin == null ? null : DateTime(begin.year, begin.month, begin.day);
+  final int week;
+  if (schedule.isGraduate) {
+    week = teachingWeekOf(date, begin) ?? 0;
+  } else {
+    week = firstDay == null ? 1 : date.difference(firstDay).inDays ~/ 7 + 1;
   }
+  final inTerm = schedule.isGraduate ||
+      firstDay == null ||
+      (!date.isBefore(firstDay) && week <= schedule.totalWeeks);
+  final timetableCourses =
+      inTerm ? (table?.courses ?? const <EamsCourse>[]) : const <EamsCourse>[];
   final withCustom = withCustomCourses(
     eamsToDisplayCourses(
-      table?.courses ?? const <EamsCourse>[],
+      timetableCourses,
       week,
       timetablePeriods: periods,
       onDate: date,
     ),
     schedule.customCourses,
     week,
-    schedule.termBegin,
+    begin,
     periods: periods,
     onDate: date,
   );
@@ -45,13 +48,17 @@ List<Course> coursesOnDay(
     withCustom,
     examsForSemester(assignments.assignments, schedule.selectedSemesterId),
     week,
-    schedule.termBegin,
+    begin,
     periods: periods,
   );
   return all
       .where(
-        (course) => course.dayOfWeek == day.weekday && course.occursOn(day),
+        (course) => course.dayOfWeek == date.weekday && course.occursOn(date),
       )
       .toList()
-    ..sort((a, b) => a.gridStart.compareTo(b.gridStart));
+    ..sort((a, b) {
+      final startA = parseClockMinutes(a.startTime) ?? 0;
+      final startB = parseClockMinutes(b.startTime) ?? 0;
+      return startA.compareTo(startB);
+    });
 }

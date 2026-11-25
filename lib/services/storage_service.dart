@@ -19,6 +19,7 @@ import '../models/custom_course.dart';
 import '../models/graduate_schedule.dart';
 import '../models/ids_passkey.dart';
 import '../models/oa_gym.dart';
+import '../models/quick_shortcuts.dart';
 import '../models/renew_status.dart';
 import '../models/third_party_account.dart';
 import '../models/user_session.dart';
@@ -42,8 +43,15 @@ class StorageService {
   static const _maskPersonalInfoKey = 'mask_personal_info';
   static const _islandEnabledKey = 'island_enabled';
   static const _keepAliveEnabledKey = 'keep_alive_enabled';
-  static const _spendingAlertsEnabledKey = 'spending_alerts_enabled';
   static const _alertedTransactionIdsKey = 'alerted_transaction_ids';
+  static const _hideCampusCardBalanceKey = 'hide_campus_card_balance';
+  static const _desktopSidebarCollapsedKey = 'desktop_sidebar_collapsed';
+  static const _scheduleViewModeKey = 'schedule_view_mode';
+  static const _scheduleShowSaturdayKey = 'schedule_show_saturday';
+  static const _scheduleShowSundayKey = 'schedule_show_sunday';
+  static const _scheduleShowGhostCoursesKey = 'schedule_show_ghost_courses';
+  static const _deadlinesShowAssignmentsKey = 'deadlines_show_assignments';
+  static const _deadlinesShowExamsKey = 'deadlines_show_exams';
   static const _proxyUrlKey = 'app_proxy_url';
   static const _proxyEnabledKey = 'app_proxy_enabled';
 
@@ -54,6 +62,10 @@ class StorageService {
 
   String? get campusWebOwner => _prefs.getString('campus_web_owner');
   Future<void> setCampusWebOwner(String owner) => _prefs.setString('campus_web_owner', owner);
+
+  List<String>? get pinnedQuickFeatureIds => _prefs.getStringList('pinned_quick_features');
+  Future<void> setPinnedQuickFeatureIds(List<String> ids) =>
+      _prefs.setStringList('pinned_quick_features', pinnedShortcutIds(ids));
 
   // Secure session storage
   Future<void> saveSession(UserSession session) async {
@@ -230,6 +242,12 @@ class StorageService {
     return raw == null ? null : DateTime.tryParse(raw);
   }
 
+  /// Preserve the RCCE default; native delivery still requires privacy consent and permission.
+  bool get spendingAlertsEnabled => _prefs.getBool('spending_alerts_enabled') ?? true;
+  Future<void> setSpendingAlertsEnabled(bool value) =>
+      _prefs.setBool('spending_alerts_enabled', value);
+  Future<void> reloadNotificationPreferences() => _prefs.reload();
+
   // SharedPreferences for non-sensitive data
   bool get debugMode => !kReleaseMode && (_prefs.getBool(_debugModeKey) ?? false);
   Future<void> setDebugMode(bool value) => _prefs.setBool(_debugModeKey, value);
@@ -248,12 +266,57 @@ class StorageService {
   String get themeMode => _prefs.getString(_themeModeKey) ?? 'system';
   Future<void> setThemeMode(String mode) => _prefs.setString(_themeModeKey, mode);
 
-  String get colorScheme => _prefs.getString(_colorSchemeKey) ?? 'system';
+  static const _colorSchemeDefaultMigratedV1Key = 'color_scheme_default_techred_v1';
+
+  String get colorScheme => _prefs.getString(_colorSchemeKey) ?? 'techRed';
   Future<void> setColorScheme(String scheme) => _prefs.setString(_colorSchemeKey, scheme);
 
   /// Android-only glass compositing style: `classic`, `frosted` or `liquid`.
   String get glassMode => _prefs.getString(_glassModeKey) ?? 'frosted';
   Future<void> setGlassMode(String mode) => _prefs.setString(_glassModeKey, mode);
+
+  /// Migrates legacy installs that stored the pre-v1.1 `'system'` default
+  /// accent to `'techRed'` once, while preserving future user selections.
+  Future<void> migrateLegacyDefaultColorScheme() async {
+    if (_prefs.getBool(_colorSchemeDefaultMigratedV1Key) ?? false) return;
+    if (_prefs.getString(_colorSchemeKey) == 'system') {
+      await _prefs.setString(_colorSchemeKey, 'techRed');
+    }
+    await _prefs.setBool(_colorSchemeDefaultMigratedV1Key, true);
+  }
+
+  bool get hideCampusCardBalance => _prefs.getBool(_hideCampusCardBalanceKey) ?? false;
+  Future<void> setHideCampusCardBalance(bool value) =>
+      _prefs.setBool(_hideCampusCardBalanceKey, value);
+
+  bool get desktopSidebarCollapsed => _prefs.getBool(_desktopSidebarCollapsedKey) ?? false;
+  Future<void> setDesktopSidebarCollapsed(bool value) =>
+      _prefs.setBool(_desktopSidebarCollapsedKey, value);
+
+  String get scheduleViewMode => _prefs.getString(_scheduleViewModeKey) ?? 'week';
+  Future<void> setScheduleViewMode(String mode) => _prefs.setString(_scheduleViewModeKey, mode);
+
+  /// `null` means the user has never overridden Saturday visibility, so
+  /// SchedulePage shows Saturday only when the active semester has Saturday
+  /// classes or exams.
+  bool? get scheduleShowSaturday => _prefs.getBool(_scheduleShowSaturdayKey);
+  Future<void> setScheduleShowSaturday(bool value) =>
+      _prefs.setBool(_scheduleShowSaturdayKey, value);
+
+  /// `null` means the user has never overridden Sunday visibility.
+  bool? get scheduleShowSunday => _prefs.getBool(_scheduleShowSundayKey);
+  Future<void> setScheduleShowSunday(bool value) => _prefs.setBool(_scheduleShowSundayKey, value);
+
+  bool get scheduleShowGhostCourses => _prefs.getBool(_scheduleShowGhostCoursesKey) ?? false;
+  Future<void> setScheduleShowGhostCourses(bool value) =>
+      _prefs.setBool(_scheduleShowGhostCoursesKey, value);
+
+  bool get deadlinesShowAssignments => _prefs.getBool(_deadlinesShowAssignmentsKey) ?? true;
+  Future<void> setDeadlinesShowAssignments(bool value) =>
+      _prefs.setBool(_deadlinesShowAssignmentsKey, value);
+
+  bool get deadlinesShowExams => _prefs.getBool(_deadlinesShowExamsKey) ?? true;
+  Future<void> setDeadlinesShowExams(bool value) => _prefs.setBool(_deadlinesShowExamsKey, value);
 
   bool get maskPersonalInfo => _prefs.getBool(_maskPersonalInfoKey) ?? true;
   Future<void> setMaskPersonalInfo(bool value) => _prefs.setBool(_maskPersonalInfoKey, value);
@@ -270,9 +333,6 @@ class StorageService {
 
   /// A receipt is expected news rather than an interruption, so this is on by
   /// default and the user turns it off if they disagree.
-  bool get spendingAlertsEnabled => _prefs.getBool(_spendingAlertsEnabledKey) ?? true;
-  Future<void> setSpendingAlertsEnabled(bool value) =>
-      _prefs.setBool(_spendingAlertsEnabledKey, value);
 
   /// Transaction ids already announced, oldest first. An id dropped by the cap
   /// can only be re-announced if it reappears in a fresh page, which the
@@ -388,6 +448,18 @@ class StorageService {
   static const _selectedSemesterKey = 'schedule_selected_semester';
   static const _scheduleSourceKey = 'schedule_source_preference';
 
+  String _shortNameKey(String? owner, String course) =>
+      'schedule_short_name_${jsonEncode([owner, course])}';
+
+  String? courseShortName(String? owner, String course) =>
+      _prefs.getString(_shortNameKey(owner, course));
+
+  Future<void> setCourseShortName(String? owner, String course, String? name) async {
+    final key = _shortNameKey(owner, course);
+    final saved = name == null ? await _prefs.remove(key) : await _prefs.setString(key, name);
+    if (!saved) throw StateError('保存课表简称失败');
+  }
+
   CampusIdentity? loadCampusIdentity(String owner) {
     final raw = _prefs.getString('schedule_campus_identity');
     if (raw == null) return null;
@@ -498,7 +570,21 @@ class StorageService {
         jsonEncode({...table.toJson(), if (owner != null) 'owner': owner}),
       );
 
-  CourseTable? loadCourseTable(String semesterId, {String? owner}) {
+  Future<void> adoptLegacyCourseTable(String semesterId, String? owner, String watchOwner) async {
+    final key = '$_courseTablePrefix$semesterId';
+    final raw = _prefs.getString(key);
+    if (raw == null || semesterId.startsWith(graduateSemesterPrefix)) return;
+    final row = jsonDecode(raw) as Map<String, dynamic>;
+    if (row['owner'] != null || row['watchOwner'] != null) return;
+    if (owner == null) {
+      row['watchOwner'] = watchOwner;
+    } else {
+      row['owner'] = owner;
+    }
+    await _prefs.setString(key, jsonEncode(row));
+  }
+
+  CourseTable? loadCourseTable(String semesterId, {String? owner, String? watchOwner}) {
     final raw = _prefs.getString('$_courseTablePrefix$semesterId');
     if (raw == null) return null;
     final json = jsonDecode(raw) as Map<String, dynamic>;
@@ -506,7 +592,13 @@ class StorageService {
         (owner == null || json['owner'] != owner)) {
       return null;
     }
-    if (json['owner'] != null && json['owner'] != owner) return null;
+    if (watchOwner != null) {
+      // Older watch builds stored a manual adoption in the owner field.
+      final savedOwner = json['owner'] ?? json['watchOwner'];
+      if (savedOwner != (owner ?? watchOwner)) return null;
+    } else if (json['owner'] != null && json['owner'] != owner) {
+      return null;
+    }
     return CourseTable.fromJson(json);
   }
 
@@ -559,12 +651,12 @@ class StorageService {
           if (item is! Map) continue;
           courses.add(CustomCourse.fromJson(item.cast<String, dynamic>()));
         } catch (error) {
-          debugPrint('Skipping invalid custom course: $error');
+          debugPrint('Skipping invalid custom course: ${error.runtimeType}');
         }
       }
       return courses;
     } catch (error) {
-      debugPrint('Failed to read custom courses for $semesterId: $error');
+      debugPrint('Failed to read custom courses: ${error.runtimeType}');
       return const [];
     }
   }

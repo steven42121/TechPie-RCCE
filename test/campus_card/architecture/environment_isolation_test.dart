@@ -64,8 +64,9 @@ void main() {
         // test/campus_card_http_trace_test.dart.
         // URI paths use forward slashes on Windows as well as POSIX hosts.
         .where(
-// URI paths use forward slashes on Windows as well as POSIX hosts.
-          (file) => !file.uri.path.endsWith('data/api/decrypted_http_trace.dart'),
+          (file) => !file.path
+              .replaceAll('\\', '/')
+              .endsWith('data/api/decrypted_http_trace.dart'),
         )) {
       expect(
         file.readAsStringSync(),

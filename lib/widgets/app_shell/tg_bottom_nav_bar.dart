@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 
+import '../../theme/theme.dart';
 import '../../utils/haptics.dart';
 import '../../utils/motion.dart';
 import '../tg_glass_surface.dart';
@@ -82,10 +83,8 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
   @override
   void initState() {
     super.initState();
-    _glideX = AnimationController.unbounded(vsync: this)
-      ..addListener(_onSpringTick);
-    _settleX = AnimationController.unbounded(vsync: this)
-      ..addListener(_onSpringTick);
+    _glideX = AnimationController.unbounded(vsync: this)..addListener(_onSpringTick);
+    _settleX = AnimationController.unbounded(vsync: this)..addListener(_onSpringTick);
   }
 
   bool _dragging = false;
@@ -286,8 +285,8 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
                       _contentHeight = constraints.maxHeight;
                       return RawGestureDetector(
                         gestures: {
-                          LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<
-                              LongPressGestureRecognizer>(
+                          LongPressGestureRecognizer:
+                              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
                             // ClickHelper long-press = system × 0.75.
                             () => LongPressGestureRecognizer(
                               duration: const Duration(milliseconds: 375),
@@ -326,79 +325,86 @@ class _TgBottomNavBarState extends State<TgBottomNavBar> with TickerProviderStat
   }
 
   Widget _buildTab(int index, ColorScheme scheme) {
+    final colors = context.tpColors;
     final destination = widget.destinations[index];
     final effectiveSelected =
         _capsuleDetached && _dragIndex != null ? _dragIndex! : widget.selectedIndex;
     final t = _selectedT[index].setBool(index == effectiveSelected);
     // glass_tabUnselected is a near-full-contrast neutral, glass_tabSelected
-    // the accent; icon and label blend toward it as the tab activates.
-    final tint = Color.lerp(scheme.onSurface, scheme.primary, t)!;
+    // the accessible brand ink; icon and label blend toward it as the tab activates.
+    final tint = Color.lerp(scheme.onSurface, colors.brandInk, t)!;
+    final sameIcon = destination.icon == destination.selectedIcon;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => widget.onDestinationSelected(index),
-      child: Semantics(
-        selected: index == widget.selectedIndex,
-        button: true,
-        child: CustomPaint(
-          painter: _TabSelectorPainter(
-            // While the capsule is detached the bar paints it; tabs skip.
-            selectedT: _capsuleDetached ? 0 : t,
-            color: scheme.primary,
-          ),
-          child: Stack(
-            alignment: Alignment.topCenter,
-            children: [
-              Positioned(
-                top: 4,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Outline→filled crossfade stands in for the original's
-                    // Lottie morph between icon variants.
-                    Opacity(
-                      opacity: 1 - t,
-                      child: Icon(destination.icon, size: 24, color: tint),
-                    ),
-                    Opacity(
-                      opacity: t,
-                      child: Icon(
-                        destination.selectedIcon,
-                        size: 24,
-                        color: tint,
-                      ),
-                    ),
-                  ],
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => widget.onDestinationSelected(index),
+        child: Semantics(
+          selected: index == widget.selectedIndex,
+          button: true,
+          child: CustomPaint(
+            painter: _TabSelectorPainter(
+              // While the capsule is detached the bar paints it; tabs skip.
+              selectedT: _capsuleDetached ? 0 : t,
+              color: scheme.primary,
+            ),
+            child: Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                Positioned(
+                  top: 4,
+                  child: sameIcon
+                      ? Icon(destination.icon, size: 24, color: tint)
+                      : Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Outline→filled crossfade stands in for the original's
+                            // Lottie morph between icon variants.
+                            Opacity(
+                              opacity: 1 - t,
+                              child: Icon(destination.icon, size: 24, color: tint),
+                            ),
+                            Opacity(
+                              opacity: t,
+                              child: Icon(
+                                destination.selectedIcon,
+                                size: 24,
+                                color: tint,
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
-              ),
-              // Label: 12dp Roboto Medium — Telegram's "bold()" is actually
-              // rmedium.ttf (w500), bundled here as RobotoMedium. The
-              // original's TextView sits at top 28.33 with Android font
-              // padding, putting the baseline at ~41dp; Flutter has no font
-              // padding, so top 30 reproduces the same baseline and the
-              // ~4dp visual gap below the icon.
-              Positioned(
-                top: 30,
-                child: Text(
-                  destination.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    inherit: false,
-                    fontFamily: 'RobotoMedium',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: tint,
+                // Label: 12dp Roboto Medium — Telegram's "bold()" is actually
+                // rmedium.ttf (w500), bundled here as RobotoMedium. The
+                // original's TextView sits at top 28.33 with Android font
+                // padding, putting the baseline at ~41dp; Flutter has no font
+                // padding, so top 30 reproduces the same baseline and the
+                // ~4dp visual gap below the icon.
+                Positioned(
+                  top: 30,
+                  child: Text(
+                    destination.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      inherit: false,
+                      fontFamily: 'RobotoMedium',
+                      fontFamilyFallback: TpTypography.fontFamilyFallback,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: tint,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-
 }
 
 /// The per-tab selection capsule (`GlassTabView.dispatchDraw`): full cell
@@ -472,3 +478,7 @@ class _FreeCapsulePainter extends CustomPainter {
       old.cellWidth != cellWidth ||
       old.color != color;
 }
+
+/// The 0.4dp glass bevel: one stroked capsule whose color runs from the top
+/// hairline to the bottom hairline (`strokePathTop`/`strokePathBottom` in
+/// `BlurredBackgroundDrawable`, collapsed into a vertical gradient stroke).

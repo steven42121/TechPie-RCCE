@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/main.dart';
 import 'package:techpie/pages/debug_log_page.dart';
-import 'package:techpie/pages/settings_page.dart';
 import 'package:techpie/services/assignment_service.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:techpie/services/campus_card_service.dart';
@@ -28,8 +27,10 @@ void main() {
   testWidgets('the system back leaves a settings subpage rather than the app', (
     WidgetTester tester,
   ) async {
-    // Keep the wide layout so the settings subpage uses its nested navigator.
-    tester.view.physicalSize = const Size(1200, 1400);
+    // Wide enough for the non-compact layout, and tall enough that the debug
+    // tiles at the bottom of the settings list are not under the navigation bar —
+    // a tap on an obscured tile does nothing, silently.
+    tester.view.physicalSize = const Size(1200, 1800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -90,24 +91,21 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Settings').first);
+    await tester.tap(find.text('我的').first);
     await tester.pumpAndSettle();
 
-    // Settings can grow as options are added, and the list builds lazily, so
-    // the target may not exist yet: take the settings list itself as the
-    // scrollable rather than deriving it from the target's ancestors.
-    await tester.scrollUntilVisible(
-      find.text('View Logs').hitTestable(),
-      200,
-      scrollable: find
-          .descendant(
-            of: find.byType(SettingsPage),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
+    // Only the developer entry is reachable without an account; open it first
+    // and then navigate into DebugLogPage.
+    final devTile = find.byKey(const ValueKey('settings.developer-options'));
+    await tester.ensureVisible(devTile);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('View Logs'));
+    await tester.tap(devTile);
+    await tester.pumpAndSettle();
+
+    final logsTile = find.text('查看日志');
+    await tester.ensureVisible(logsTile);
+    await tester.pumpAndSettle();
+    await tester.tap(logsTile);
     await tester.pumpAndSettle();
     expect(find.byType(DebugLogPage), findsOneWidget);
 

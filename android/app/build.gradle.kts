@@ -155,6 +155,7 @@ dependencies {
     implementation("androidx.core:core:1.18.0")
     // The scheduled background refresh: periodic work, no resident service.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    testImplementation("junit:junit:4.13.2")
 }
 
 tasks.named("preBuild") { dependsOn(prepareEcardWidgetResources) }

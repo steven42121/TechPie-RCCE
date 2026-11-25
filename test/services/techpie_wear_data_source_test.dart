@@ -49,6 +49,7 @@ void main() {
       accounts: accounts,
       assignments: assignments,
       campusCard: campusCard,
+      timetable: schedule,
     );
     addTearDown(() {
       assignments.dispose();

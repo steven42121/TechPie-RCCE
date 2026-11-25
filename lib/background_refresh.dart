@@ -71,15 +71,7 @@ Future<void> _reportSpending(
     if (port is! DateRangeTransactionHistoryPort) return;
     // Unrelated interfaces, so no promotion: the cast is the narrowing.
     final page = await (port as DateRangeTransactionHistoryPort).timelineRange();
-    // A first-ever read has no baseline: recording what is old news beats
-    // announcing a month of receipts, the way the in-app feed does it too.
-    if (storage.alertedTransactionIds.isEmpty) {
-      await storage.setAlertedTransactionIds(
-        page.items.map((item) => item.id).toList(),
-      );
-      return;
-    }
-    await alerts.alertNewSpending(page.items);
+    await alerts.refreshInBackground(() async => page.items);
   } catch (_) {
     // No session, no network, no news: the in-app path catches up later.
   }

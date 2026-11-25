@@ -19,9 +19,8 @@ abstract interface class DateRangeTransactionHistoryPort {
   });
 }
 
-/// Records the app has just learned about, oldest first. The implementation
-/// decides what the user is actually told — this is a signal, not a promise
-/// that a message appears.
+/// Optional host integration. A complete recent page establishes or advances
+/// the notification baseline; demos and filtered/history pages never call it.
 abstract interface class SpendingAlertPort {
-  Future<void> alertNewSpending(List<TransactionRecord> records);
+  Future<void> observeTransactions(List<TransactionRecord> records, {required String subjectId});
 }

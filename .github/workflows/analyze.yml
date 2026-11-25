@@ -92,3 +92,6 @@ jobs:
 
       - name: Test watch protocol, signing configuration and feedback recovery
         run: node --test scripts/release-plan.test.mjs harmonyos_watch/scripts/*.test.cjs harmonyos_watch/scripts/*.test.mjs web/feedback/test/*.test.mjs
+
+      - name: Test GNOME desktop stacking
+        run: node --experimental-vm-modules --test linux/widgets/tests/*.test.mjs

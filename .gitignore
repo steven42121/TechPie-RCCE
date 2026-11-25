@@ -44,6 +44,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/.kotlin/
 
 # Android release signing material
 /android/*.jks
@@ -55,11 +56,11 @@ app.*.map.json
 .vscode/
 .claude/
 
-# The band-side Vela quick app, built and sideloaded on its own
-/vela_app/
-
-# Environment files
+# Environment files — `.envrc` holds the OHOS signing passwords (see CLAUDE.md),
+# so anything derived from it (backups, copies) must stay out of the tree too.
 .envrc
+.envrc*
+!.envrc.example
 # Local AGC credentials for scripts/appgallery-publish.mjs (never commit secrets)
 .env
 # Local Xcode overrides
@@ -120,7 +121,6 @@ dist/
 
 /outputs/
 
-# Local environment backups and Apple build overrides
-.envrc.*
-!.envrc.example
+# RCCE local companion and overrides
+/vela_app/
 pubspec_overrides.yaml

@@ -1,26 +1,48 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
 import 'campus_user_agent.dart';
 import 'debug_logger.dart';
+import 'http_proxy_stub.dart'
+    if (dart.library.io) 'http_proxy_io.dart' as proxy_impl;
 
-String _appProxy = '';
+final _appProxyPattern = RegExp(r'^(?:\[[0-9a-fA-F:]+\]|[^\s:/;@]+):(\d{1,5})$');
 
-class TechPieHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    final client = super.createHttpClient(context);
-    // Read the current choice on every request, including existing clients.
-    client.findProxy = (_) => _appProxy.isEmpty ? 'DIRECT' : 'PROXY $_appProxy';
-    return client;
+/// Normalizes user input such as `http://127.0.0.1:7890/` into `127.0.0.1:7890`.
+String normalizeAppProxy(String value) {
+  var normalized = value.trim();
+  if (normalized.isEmpty) return '';
+  if (normalized.toLowerCase().startsWith('http://')) {
+    normalized = normalized.substring(7);
   }
+  while (normalized.endsWith('/')) {
+    normalized = normalized.substring(0, normalized.length - 1);
+  }
+  return normalized.trim();
 }
 
+/// Returns true when [value] is a valid `host:port` (port 1..65535) HTTP proxy.
+bool isValidAppProxy(String value) {
+  final normalized = normalizeAppProxy(value);
+  final match = _appProxyPattern.firstMatch(normalized);
+  if (match == null) return false;
+  final port = int.tryParse(match.group(1)!);
+  return port != null && port >= 1 && port <= 65535;
+}
+
+/// Resolves the active proxy directive for [uri] (`PROXY host:port` or
+/// environment fallback when app proxy is disabled).
+String resolveAppProxy(Uri uri, {Map<String, String>? environment}) =>
+    proxy_impl.resolveAppProxyImpl(uri, environment: environment);
+
+/// Configures the app-wide HTTP proxy for native platforms. Empty or invalid
+/// values disable the override and fall back to environment defaults.
 void configureAppProxy(String value) {
-  _appProxy = value.trim();
-  HttpOverrides.global = TechPieHttpOverrides();
+  final normalized = normalizeAppProxy(value);
+  proxy_impl.configureAppProxyImpl(
+    isValidAppProxy(normalized) ? normalized : '',
+  );
 }
 
 class LoggingHttpClient {
@@ -30,7 +52,7 @@ class LoggingHttpClient {
   LoggingHttpClient(this._logger, {http.Client? inner}) : _inner = inner ?? http.Client();
 
   /// School SSO redirects can carry tickets and personal records. Log only
-  /// the origin/path, status and structural summary, never credentials or raw bodies.
+  /// the origin, status and structural summary, never credentials or raw bodies.
   Future<http.Response> readOnlyGet(Uri uri, {Map<String, String>? headers}) async {
     final request = http.Request('GET', uri)
       ..followRedirects = false
@@ -71,14 +93,13 @@ class LoggingHttpClient {
     } catch (error) {
       _logger.log(
         method: request.method,
-        url: '${uri.scheme}://${uri.host}${uri.path}',
+        uri: uri,
         error: '网络请求未完成（${error.runtimeType}）',
         tag: 'schoolSchedule:readOnly',
       );
       rethrow;
     }
     final summary = <String, dynamic>{
-      'contentType': response.headers['content-type']?.split(';').first ?? 'unknown',
       'bytes': response.bodyBytes.length,
     };
     try {
@@ -119,9 +140,9 @@ class LoggingHttpClient {
     }
     _logger.log(
       method: request.method,
-      url: '${uri.scheme}://${uri.host}${uri.path}',
+      uri: uri,
       statusCode: response.statusCode,
-      responseBody: jsonEncode(summary),
+      responseSummary: summary,
       tag: 'schoolSchedule:readOnly',
     );
     return response;
@@ -132,23 +153,23 @@ class LoggingHttpClient {
     Map<String, String>? headers,
     String? tag,
   }) async {
-    _logger.log(method: 'GET', url: url.toString(), tag: tag);
+    _logger.log(method: 'GET', uri: url, tag: tag);
     try {
       final response =
           await _inner.get(url, headers: {'User-Agent': CampusUserAgent.value, ...?headers});
       _logger.log(
         method: 'GET',
-        url: url.toString(),
+        uri: url,
         statusCode: response.statusCode,
-        responseBody: _truncate(response.body),
+        responseSummary: {'bytes': response.bodyBytes.length},
         tag: tag,
       );
       return response;
     } catch (e) {
       _logger.log(
         method: 'GET',
-        url: url.toString(),
-        error: e.toString(),
+        uri: url,
+        error: e.runtimeType.toString(),
         tag: tag,
       );
       rethrow;
@@ -165,8 +186,7 @@ class LoggingHttpClient {
     final bodyStr = body is String ? body : (body != null ? jsonEncode(body) : null);
     _logger.log(
       method: 'POST',
-      url: url.toString(),
-      requestBody: bodyStr,
+      uri: url,
       tag: tag,
     );
     try {
@@ -178,17 +198,17 @@ class LoggingHttpClient {
       );
       _logger.log(
         method: 'POST',
-        url: url.toString(),
+        uri: url,
         statusCode: response.statusCode,
-        responseBody: _truncate(response.body),
+        responseSummary: {'bytes': response.bodyBytes.length},
         tag: tag,
       );
       return response;
     } catch (e) {
       _logger.log(
         method: 'POST',
-        url: url.toString(),
-        error: e.toString(),
+        uri: url,
+        error: e.runtimeType.toString(),
         tag: tag,
       );
       rethrow;
@@ -200,13 +220,13 @@ class LoggingHttpClient {
     Map<String, String>? headers,
     String? tag,
   }) async {
-    _logger.log(method: 'HEAD', url: url.toString(), tag: tag);
+    _logger.log(method: 'HEAD', uri: url, tag: tag);
     try {
       final response =
           await _inner.head(url, headers: {'User-Agent': CampusUserAgent.value, ...?headers});
       _logger.log(
         method: 'HEAD',
-        url: url.toString(),
+        uri: url,
         statusCode: response.statusCode,
         tag: tag,
       );
@@ -214,16 +234,13 @@ class LoggingHttpClient {
     } catch (e) {
       _logger.log(
         method: 'HEAD',
-        url: url.toString(),
-        error: e.toString(),
+        uri: url,
+        error: e.runtimeType.toString(),
         tag: tag,
       );
       rethrow;
     }
   }
-
-  String _truncate(String s, [int maxLen = 2000]) =>
-      s.length > maxLen ? '${s.substring(0, maxLen)}...' : s;
 
   void close() => _inner.close();
 }

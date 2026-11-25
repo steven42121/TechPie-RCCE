@@ -79,6 +79,7 @@ class DeadlineWidgetService with WidgetsBindingObserver {
         'subtitle': String.fromCharCodes(
           switch (a) {
             ExamAssignment(:final location) => location.trim().runes,
+            CustomDeadline(:final course, :final location) => (course.trim().isNotEmpty ? course.trim() : location.trim()).runes,
             _ => a.course.runes,
           }
               .take(128),

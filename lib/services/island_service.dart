@@ -8,7 +8,6 @@ import '../models/island_frame.dart';
 import '../utils/platform.dart';
 import '../utils/today_courses.dart';
 import 'assignment_service.dart';
-import 'background_refresher.dart';
 import 'schedule_service.dart';
 import 'storage_service.dart';
 
@@ -52,7 +51,9 @@ final class IslandService {
     this._schedule,
     this._assignments, {
     MethodChannel? channel,
-  }) : _channel = channel ?? const MethodChannel('techpie/island');
+    DateTime Function()? now,
+  })  : _channel = channel ?? const MethodChannel('techpie/island'),
+        _now = now ?? DateTime.now;
 
   static const _refreshCooldown = Duration(seconds: 30);
   static const _tick = Duration(minutes: 1);
@@ -61,6 +62,7 @@ final class IslandService {
   final ScheduleService _schedule;
   final AssignmentService _assignments;
   final MethodChannel _channel;
+  final DateTime Function() _now;
 
   Timer? _timer;
   Timer? _timelineDebounce;
@@ -79,6 +81,8 @@ final class IslandService {
       return IslandCapability.fromMap(map);
     } on PlatformException {
       return null;
+    } on MissingPluginException {
+      return null;
     }
   }
 
@@ -86,9 +90,6 @@ final class IslandService {
   /// first, since a denied permission means nothing can be shown at all.
   Future<void> setEnabled(bool value) async {
     await _storage.setIslandEnabled(value);
-    // On or off, the schedule follows: the background wake-up exists for
-    // whatever the user has asked to be told about.
-    unawaited(syncBackgroundRefresh(_storage));
     if (!value) {
       await dismiss(force: true);
       await _invokeQuiet('cancelFrames');
@@ -128,14 +129,14 @@ final class IslandService {
 
   Future<void> refreshNow({bool force = false}) async {
     if (!enabled) return;
+    final now = _now();
     final last = _lastRefresh;
     if (!force &&
         last != null &&
-        DateTime.now().difference(last) < _refreshCooldown) {
+        now.difference(last) < _refreshCooldown) {
       return;
     }
-    _lastRefresh = DateTime.now();
-    final now = DateTime.now();
+    _lastRefresh = now;
     final frame = buildIslandFrame(
       dayCourses: coursesOnDay(_schedule, _assignments, now),
       upcomingDeadlines: _openDeadlines(),
@@ -158,14 +159,13 @@ final class IslandService {
       await _channel.invokeMethod<bool>('dismiss');
     } on PlatformException {
       // Already gone.
+    } on MissingPluginException {
+      // Non-Android platforms do not register the channel.
     }
   }
 
   List<Assignment> _openDeadlines() => _assignments.visibleAssignments
-      .where(
-        (assignment) =>
-            !assignment.submitted && !_assignments.isCompleted(assignment),
-      )
+      .where((assignment) => !_assignments.isCompleted(assignment))
       .toList();
 
   Future<void> _push(IslandFrame frame) async {
@@ -177,10 +177,13 @@ final class IslandService {
     } on PlatformException {
       // A frame that cannot be shown is dropped, not retried: the next tick
       // recomputes from state that is by then current.
+    } on MissingPluginException {
+      // Non-Android platforms do not register the channel.
     }
   }
 
   Future<void> _onDataChanged() async {
+    if (!enabled) return;
     await refreshNow(force: true);
     // A schedule/assignment load arrives as a burst of changes; rescheduling is
     // a full alarm rebuild, so let it settle first.
@@ -201,7 +204,8 @@ final class IslandService {
     }
     final events = buildIslandTimeline(
       coursesForDay: (day) => coursesOnDay(_schedule, _assignments, day),
-      deadlines: _openDeadlines(), now: DateTime.now(),
+      deadlines: _openDeadlines(),
+      now: _now(),
     ).entries;
     final payload = [
       for (final entry in events)
@@ -235,6 +239,8 @@ final class IslandService {
     } on PlatformException {
       // The prompt is advisory; the capability probe still says whether the
       // island can be shown.
+    } on MissingPluginException {
+      // Non-Android platforms do not register the channel.
     }
   }
 }

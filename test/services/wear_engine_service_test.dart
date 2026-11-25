@@ -8,8 +8,7 @@ import 'package:techpie/services/wear/wear_engine_service.dart';
 import 'package:techpie/services/wear/wear_protocol.dart';
 
 final testNow = DateTime.utc(2026, 10, 13);
-const fingerprint =
-    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const fingerprint = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 class MemoryMetadata implements WearMetadata {
   String? value;
@@ -22,6 +21,9 @@ class MemoryMetadata implements WearMetadata {
 }
 
 class Source implements WearDataSource {
+  List<WearCourse> courses = [];
+  @override
+  Future<List<WearCourse>> schedule(DateTime from) async => courses;
   String scope = 'account-a';
   bool failDdl = false;
   List<WearDdl> items = [];
@@ -53,8 +55,13 @@ class Peer implements WearTransport {
   final codec = WearFrames();
   final frameStream = StreamController<Uint8List>.broadcast();
   final stateStream = StreamController<Map<String, dynamic>>.broadcast();
+  final authorizations = <bool>[];
+  bool p2pAllowed = true;
+  bool asleep = false;
+  int opens = 0;
   bool ignoreAccount = false;
   bool rejectDdl = false;
+  bool ignoreDdl = false;
   bool ignoreHeartbeat = false;
   List<String> capabilities = [
     'account.display',
@@ -73,17 +80,24 @@ class Peer implements WearTransport {
   Future<Map<String, dynamic>> status() async => {
         'service': 'ready',
         'device': 'connected',
-        'permission': {'p2p': true, 'notify': true},
+        'permission': {'p2p': p2pAllowed, 'notify': true},
       };
   @override
   Future<List<Map<String, dynamic>>> devices() async => [
         {'id': 'watch'},
       ];
   @override
-  Future<Map<String, dynamic>> authorize({required bool notify}) async =>
-      {'p2p': true, 'notify': notify};
+  Future<Map<String, dynamic>> authorize({required bool notify}) async {
+    authorizations.add(notify);
+    return {'p2p': true, 'notify': notify};
+  }
+
   @override
-  Future<void> open(String deviceId, String fingerprint) async {}
+  Future<void> open(String deviceId, String fingerprint) async {
+    opens++;
+    if (asleep) throw const WearFailure('PEER_NOT_READY');
+  }
+
   @override
   Future<void> close() async {
     codec.clear();
@@ -163,7 +177,19 @@ class Peer implements WearTransport {
           'resource': 'account',
           'revision': body['revision'],
         });
+      case 'schedule.snapshot':
+        respond(
+          message,
+          'result',
+          {
+            'status': 'ok',
+            'code': 'OK',
+            'resource': 'schedule',
+            'revision': body['revision'],
+          },
+        );
       case 'ddl.snapshot':
+        if (ignoreDdl) return;
         if (rejectDdl) {
           respond(message, 'result', {
             'status': 'error',
@@ -185,6 +211,7 @@ class Peer implements WearTransport {
         if (!ignoreHeartbeat) {
           respond(message, 'result', {'status': 'ok', 'code': 'OK'});
         }
+      case 'campusCode.authorization':
       case 'campusCode.snapshot':
         respond(message, 'result', {'status': 'ok', 'code': 'OK'});
     }
@@ -238,8 +265,204 @@ void main() {
         notify: notify,
       );
 
-  test('UTF-8 Chinese framing roundtrips out of order without exceeding 1KB',
-      () {
+  Future<void> settleAuto() async {
+    for (var i = 0; i < 50; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      if (service.ready) return;
+    }
+  }
+
+  test('foreground resume restores a saved pairing without authorization prompts', () async {
+    await open();
+    final stored = metadata.value;
+    service.dispose();
+    peer = Peer();
+    metadata = MemoryMetadata()..value = stored;
+    service = WearEngineService(
+      transport: peer,
+      source: source,
+      metadata: metadata,
+      now: () => testNow,
+      timeout: const Duration(milliseconds: 100),
+    );
+    service.resumeSync();
+    await settleAuto();
+    expect(service.ready, true);
+    expect(peer.authorizations, isEmpty);
+    expect(peer.opens, 1);
+  });
+
+  test('a first selection while the peer sleeps is retried after it wakes', () async {
+    peer.asleep = true;
+    await expectLater(open(), throwsA(isA<WearFailure>()));
+    expect(service.autoSyncEnabled, true);
+    expect(service.ready, false);
+    peer.asleep = false;
+    service.resumeSync();
+    await settleAuto();
+    expect(service.ready, true);
+    expect(peer.authorizations, [false]);
+  });
+
+  test('the release companion starts without the former test app pairing or offline grant', () {
+    service.dispose();
+    metadata.value = jsonEncode({
+      'pairedDevice': 'watch',
+      'pairedFingerprint': 'com.geekpie.techpie.watch_previousPublicKey',
+      'autoSync': true,
+      'offlineConsent': true,
+      'binding': 'test-install',
+    });
+    service = WearEngineService(transport: peer, source: source, metadata: metadata);
+    expect(service.autoSyncEnabled, false);
+    expect(service.offlineCampusCodeEnabled, false);
+  });
+
+  test('foreground changes keep the live session and a disconnect still triggers repair', () async {
+    await open();
+    final session = peer.session;
+    service.suspendSync();
+    expect(service.ready, true);
+    expect(service.autoSyncEnabled, true);
+    expect(peer.received.where((m) => m['type'] == 'session.clear'), isEmpty);
+    service.resumeSync();
+    expect(peer.session, session);
+    peer.stateStream.add({'device': 'disconnected'});
+    await Future<void>.delayed(Duration.zero);
+    expect(service.ready, false);
+    service.resumeSync();
+    await settleAuto();
+    expect(service.ready, true);
+    expect(peer.session, isNot(session));
+    expect(peer.authorizations, [false]);
+  });
+
+  test('missing permission does not prompt; watch restart performs a fresh handshake', () async {
+    await open();
+    final initial = peer.opens;
+    peer.p2pAllowed = false;
+    peer.stateStream.add({'device': 'disconnected'});
+    await Future<void>.delayed(Duration.zero);
+    service.resumeSync();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(peer.opens, initial);
+    expect(peer.authorizations, [false]);
+    peer.p2pAllowed = true;
+    peer.stateStream.add({'device': 'connected'});
+    await settleAuto();
+    expect(service.ready, true);
+    expect(peer.opens, initial + 1);
+    final previous = peer.session;
+    peer.emit({
+      'v': 1,
+      'id': 'restart',
+      'type': 'peer.ready',
+      'sentAtMs': testNow.millisecondsSinceEpoch,
+      'sessionId': null,
+      'bindingId': null,
+      'body': <String, Object?>{},
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(peer.session, isNot(previous));
+    expect(service.ready, true);
+    await service.close();
+    service.resumeSync();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(service.autoSyncEnabled, false);
+    expect(service.ready, false);
+  });
+
+  test('offline authorization is opt-in, capability-gated and revoked with null', () async {
+    service.dispose();
+    peer = Peer()..capabilities.add('campusCode.offlineSm2');
+    var exports = 0;
+    service = WearEngineService(
+      transport: peer,
+      source: source,
+      metadata: metadata,
+      now: () => testNow,
+      offlineCredential: () async {
+        exports++;
+        return {'fixture': true};
+      },
+    );
+    await open();
+    expect(exports, 0);
+    await service.setOfflineCampusCodeEnabled(true);
+    expect(exports, 1);
+    expect(service.offlineCampusCodeApplied, true);
+    expect(metadata.value, isNot(contains('fixture')));
+    await service.setOfflineCampusCodeEnabled(false);
+    final body =
+        peer.received.lastWhere((m) => m['type'] == 'campusCode.authorization')['body'] as Map;
+    expect(body['credential'], null);
+    expect(service.offlineCampusCodeApplied, false);
+  });
+
+  test('approved P2P syncs timetable and enables local reminders without NOTIFY', () async {
+    peer.capabilities.addAll(['schedule.display', 'reminder.watchLocal']);
+    source.courses = [
+      WearCourse(
+        name: '大学物理',
+        location: '教学楼 201',
+        startAt: testNow.add(const Duration(hours: 1)),
+        endAt: testNow.add(const Duration(hours: 2)),
+      ),
+    ];
+    await open();
+    final timetable =
+        peer.received.singleWhere((m) => m['type'] == 'schedule.snapshot')['body'] as Map;
+    expect((timetable['items'] as List).single['name'], '大学物理');
+    expect(timetable['timeZone'], 'Asia/Shanghai');
+    expect(service.watchRemindersEnabled, false);
+    await service.setWatchRemindersEnabled(true);
+    expect(service.watchRemindersEnabled, true);
+    expect(
+      (peer.received.lastWhere((m) => m['type'] == 'ddl.snapshot')['body']
+          as Map)['remindersEnabled'],
+      true,
+    );
+    expect(peer.authorizations, [false]);
+    expect(peer.schedule, null);
+    await service.close();
+    expect(service.watchRemindersEnabled, false);
+  });
+  test('failed P2P reminder update retains previous setting', () async {
+    peer.capabilities.add('reminder.watchLocal');
+    await open();
+    peer.rejectDdl = true;
+    await expectLater(
+      service.setWatchRemindersEnabled(true),
+      throwsA(isA<WearFailure>()),
+    );
+    expect(service.watchRemindersEnabled, false);
+    expect(peer.authorizations, [false]);
+  });
+  test('lost local-reminder receipt ends the uncertain session', () async {
+    peer.capabilities.addAll(['reminder.watchLocal', 'connection.heartbeat']);
+    await open();
+    peer.ignoreDdl = true;
+    await expectLater(
+      service.setWatchRemindersEnabled(true),
+      throwsA(isA<WearFailure>()),
+    );
+    expect(service.ready, false);
+    expect(service.watchRemindersEnabled, false);
+    expect(peer.received.last['type'], 'session.close');
+  });
+  test('old watch receives only supported resources', () async {
+    await open();
+    expect(
+      peer.received.where((m) => m['type'] == 'schedule.snapshot'),
+      isEmpty,
+    );
+    await expectLater(
+      service.setWatchRemindersEnabled(true),
+      throwsA(isA<WearFailure>()),
+    );
+  });
+
+  test('UTF-8 Chinese framing roundtrips out of order without exceeding 1KB', () {
     final message = {
       'v': 1,
       'id': 'm1',
@@ -256,20 +479,29 @@ void main() {
     }
     expect(result, message);
   });
-  test('matrix-capable watch receives a byte-preserving QR matrix', () async {
+  test('background phone reopens a watch session and replies with an online QR matrix', () async {
     peer.capabilities = [
       'account.display',
       'ddl.display',
       'campusCode.qrMatrix',
     ];
     await open();
+    final previous = peer.session;
+    service.suspendSync();
+    peer.emit({
+      'v': 1, 'id': 'restart', 'type': 'peer.ready',
+      'sentAtMs': testNow.millisecondsSinceEpoch, 'sessionId': null, 'bindingId': null,
+      'body': <String, Object?>{},
+    });
+    await settleAuto();
+    expect(peer.session, isNot(previous));
+    expect(peer.authorizations, [false]);
     peer.request(
       'campusCode.request',
       {'purpose': 'campus', 'format': 'qrBytes'},
     );
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    final body = peer.received
-        .firstWhere((m) => m['type'] == 'campusCode.snapshot')['body'] as Map;
+    final body = peer.received.firstWhere((m) => m['type'] == 'campusCode.snapshot')['body'] as Map;
     final bytes = Uint8List.fromList([0, 128, 255]);
     final reference = QrImage(
       QrCode.fromUint8List(
@@ -290,9 +522,7 @@ void main() {
     }
     expect(base64Decode(body['payload'] as String), bytes);
   });
-  test(
-      'reminder toggle schedules after consent and cancels on disable or close',
-      () async {
+  test('reminder toggle schedules after consent and cancels on disable or close', () async {
     source.items = [
       WearDdl(
         id: 'task',
@@ -316,8 +546,7 @@ void main() {
     expect(peer.schedule, isNull);
     expect(service.remindersEnabled, false);
   });
-  test('failed reminder enable rolls back consent and supports retry',
-      () async {
+  test('failed reminder enable rolls back consent and supports retry', () async {
     await open();
     source.failDdl = true;
     await expectLater(
@@ -354,8 +583,7 @@ void main() {
     expect(peer.schedule, isNull);
   });
 
-  test('disconnect during reminder enrollment cannot re-enable reminders',
-      () async {
+  test('disconnect during reminder enrollment cannot re-enable reminders', () async {
     await open();
     source.delayedDdl = Completer<List<WearDdl>>();
     final pending = service.setRemindersEnabled(true);
@@ -395,13 +623,11 @@ void main() {
       throwsA(isA<WearFailure>()),
     );
   });
-  test('handshake and application receipts publish only minimal account fields',
-      () async {
+  test('handshake and application receipts publish only minimal account fields', () async {
     await open();
     expect(service.ready, true);
     expect((service.getStatus()['sync'] as Map)['account']['state'], 'applied');
-    final account =
-        peer.received.firstWhere((m) => m['type'] == 'account.snapshot');
+    final account = peer.received.firstWhere((m) => m['type'] == 'account.snapshot');
     expect(account['body']['data'], {'name': '张三', 'studentId': '00123'});
     expect(jsonEncode(account), isNot(contains('account-a')));
   });
@@ -415,8 +641,7 @@ void main() {
   test('lost receipt retries the identical message id and revision', () async {
     peer.droppedAcks = 1;
     await open();
-    final snapshots =
-        peer.received.where((m) => m['type'] == 'account.snapshot').toList();
+    final snapshots = peer.received.where((m) => m['type'] == 'account.snapshot').toList();
     expect(snapshots.length, 2);
     expect(snapshots[0], snapshots[1]);
   });
@@ -425,8 +650,7 @@ void main() {
     await open();
     expect((service.getStatus()['sync'] as Map)['account']['state'], 'failed');
   });
-  test('DDL selection truncates whole items and retains binary code bytes',
-      () async {
+  test('DDL selection truncates whole items and retains binary code bytes', () async {
     source.items = List.generate(
       60,
       (i) => WearDdl(
@@ -438,8 +662,7 @@ void main() {
       ),
     );
     await open();
-    final ddl =
-        peer.received.firstWhere((m) => m['type'] == 'ddl.snapshot')['body'];
+    final ddl = peer.received.firstWhere((m) => m['type'] == 'ddl.snapshot')['body'];
     expect(ddl['items'].length, 50);
     expect(ddl['truncated'], true);
     peer.request(
@@ -447,17 +670,14 @@ void main() {
       {'purpose': 'campus', 'format': 'qrBytes'},
     );
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    final code = peer.received
-        .firstWhere((m) => m['type'] == 'campusCode.snapshot')['body'];
+    final code = peer.received.firstWhere((m) => m['type'] == 'campusCode.snapshot')['body'];
     expect(base64Decode(code['payload'] as String), [0, 128, 255]);
     expect(
       code['validUntilMs'],
       testNow.add(const Duration(seconds: 30)).millisecondsSinceEpoch,
     );
   });
-  test(
-      'reminders require separate notify consent and account mutation clears them',
-      () async {
+  test('reminders require separate notify consent and account mutation clears them', () async {
     source.items = [
       WearDdl(
         id: 'd',
@@ -477,8 +697,7 @@ void main() {
     expect(peer.received.any((m) => m['type'] == 'session.clear'), true);
     expect(jsonDecode(metadata.value!)['binding'], isNull);
   });
-  test('late campus code response is dropped when the account changes',
-      () async {
+  test('late campus code response is dropped when the account changes', () async {
     await open();
     source.delayedCode = Completer<WearCampusCode>();
     peer.request(
@@ -497,8 +716,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 10));
     expect(peer.received.any((m) => m['type'] == 'campusCode.snapshot'), false);
   });
-  test('revocation while disconnected remains durable until clear receipt',
-      () async {
+  test('revocation while disconnected remains durable until clear receipt', () async {
     await open();
     await service.close();
     await service.clear(reason: 'logout');
@@ -510,8 +728,7 @@ void main() {
     expect(messages.sublist(clearIndex + 1), contains('account.snapshot'));
     expect(jsonDecode(metadata.value!)['pendingClear'], isNull);
   });
-  test('account switch during DDL fetch cannot schedule or transmit old tasks',
-      () async {
+  test('account switch during DDL fetch cannot schedule or transmit old tasks', () async {
     await open(notify: true);
     source.delayedDdl = Completer<List<WearDdl>>();
     final refresh = service.refresh(resources: ['ddl']);

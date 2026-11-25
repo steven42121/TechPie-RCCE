@@ -91,7 +91,12 @@ abstract final class TgGlass {
     inner: ImageFilter.blur(sigmaX: _backdropSigma, sigmaY: _backdropSigma),
   );
 
-  static ImageFilter backdrop() => backdropFilter;
+  static ImageFilter backdrop({double? sigma}) => sigma == null
+      ? backdropFilter
+      : ImageFilter.compose(
+          outer: const ColorFilter.matrix(_saturation3),
+          inner: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+        );
 
   static const double _backdropSigma = 24;
 

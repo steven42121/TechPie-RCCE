@@ -322,6 +322,7 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 48293) spendingAlerts?.refreshSchedule()
 
         if (requestCode != REQUEST_CALENDAR_PERMISSIONS) return
 

@@ -6,6 +6,7 @@ import '../models/screen_form_factor.dart';
 import '../services/glance_settings_service.dart';
 import '../services/screen_form_factor_service.dart';
 import '../services/service_provider.dart';
+import '../theme/tp_tokens.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/blurred_app_bar.dart';
 import 'glance_preview_page.dart';
@@ -195,7 +196,7 @@ class _StatusCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(TpTokens.radiusM),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,

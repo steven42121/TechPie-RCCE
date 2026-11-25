@@ -33,6 +33,7 @@ import 'services/screen_form_factor_service.dart';
 import 'services/service_provider.dart';
 import 'services/spending_alert_service.dart';
 import 'services/storage_service.dart';
+import 'services/student_allowance_service.dart';
 import 'services/sync_service.dart';
 import 'services/theme_service.dart';
 import 'services/third_party_auth_service.dart';
@@ -42,17 +43,18 @@ import 'services/wear/android_wear_transport.dart';
 import 'services/wear/techpie_wear_data_source.dart';
 import 'services/wear/wear_engine_service.dart';
 import 'services/wear/wear_protocol.dart';
+import 'spending_background_refresh.dart';
 import 'widgets/adaptive_feedback.dart';
 import 'widgets/app_shell/app_shell.dart';
 import 'widgets/glance/glance_gate.dart';
 import 'widgets/privacy_consent.dart';
 import 'widgets/update_dialogs.dart';
 
-/// The entrypoint a background engine runs: no UI, just the island and the
-/// spending alerts. It lives in this root library because the host resolves
-/// the entrypoint by name from here.
 @pragma('vm:entry-point')
 Future<void> backgroundRefresh() => runBackgroundRefresh();
+
+@pragma('vm:entry-point')
+Future<void> spendingBackgroundRefresh() => runSpendingBackgroundRefresh();
 
 void main(List<String> args) async {
   // If this Flutter engine is a desktop_webview_window title bar (secondary
@@ -85,14 +87,19 @@ void main(List<String> args) async {
 
 Future<void> _realMain(SharedPreferences prefs) async {
   final storageService = StorageService(prefs);
-  configureAppProxy(storageService.appProxyEnabled ? storageService.appProxyUrl : '');
+  await storageService.migrateLegacyDefaultColorScheme();
+  final configuredProxy = supportsInAppProxy() && storageService.appProxyEnabled
+      ? normalizeAppProxy(storageService.appProxyUrl)
+      : '';
+  final activeProxy = isValidAppProxy(configuredProxy) ? configuredProxy : '';
+  configureAppProxy(activeProxy);
   final screenFormFactorService = ScreenFormFactorService();
   final glanceSettings = GlanceSettings(storageService);
   final debugLogger = DebugLogger()..enabled = storageService.debugMode;
   final httpClient = LoggingHttpClient(debugLogger);
   final uniAuthService = UniAuthService(
     logger: debugLogger,
-    proxyUrl: storageService.appProxyEnabled ? storageService.appProxyUrl : '',
+    proxyUrl: activeProxy,
   );
   final authService = AuthService(
     storageService,
@@ -136,18 +143,24 @@ Future<void> _realMain(SharedPreferences prefs) async {
     scheduleService,
     syncReminders: isApple,
   );
-  final wearEngineService = isAndroid()
-      ? WearEngineService(
-          transport: AndroidWearTransport(),
-          metadata: PreferencesWearMetadata(prefs),
-          source: TechPieWearDataSource(
-            auth: authService,
-            accounts: thirdPartyAuthService,
-            assignments: assignmentService,
-            campusCard: campusCardService,
-          ),
+  final wearSource = isAndroid()
+      ? TechPieWearDataSource(
+          auth: authService,
+          accounts: thirdPartyAuthService,
+          assignments: assignmentService,
+          campusCard: campusCardService,
+          timetable: scheduleService,
         )
       : null;
+  final wearEngineService = wearSource == null
+      ? null
+      : WearEngineService(
+          transport: AndroidWearTransport(),
+          metadata: PreferencesWearMetadata(prefs),
+          source: wearSource,
+          offlineCredential: wearSource.offlineCredential,
+          adoptCurrentSchedule: wearSource.adoptCurrentSchedule,
+        );
   final deadlineWidgetService = !kIsWeb &&
           (defaultTargetPlatform == TargetPlatform.linux ||
               defaultTargetPlatform == TargetPlatform.iOS ||
@@ -178,6 +191,13 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final keepAliveService = KeepAliveService(storageService);
 
   authService.onLogout = () async {
+    if (wearEngineService != null) {
+      unawaited(
+        wearEngineService.clear(reason: 'logout').catchError((Object error) {
+          if (error is! WearFailure) throw error;
+        }),
+      );
+    }
     // Third-party bindings persist across logouts — they will be used by the
     // sync system. Only clear ephemeral state.
     await assignmentService.clearCache();
@@ -251,14 +271,14 @@ Future<void> _realMain(SharedPreferences prefs) async {
       campusCardService: campusCardService,
       ecardBindService: ecardBindService,
       ecardWidgetService: ecardWidgetService,
-      islandService: islandService,
+      wearEngineService: wearEngineService,
+      deadlineWidgetService: deadlineWidgetService,
+      deadlineReminderService: deadlineReminderService,
       spendingAlertService: spendingAlertService,
       keepAliveService: keepAliveService,
       screenFormFactorService: screenFormFactorService,
       glanceSettings: glanceSettings,
-      wearEngineService: wearEngineService,
-      deadlineWidgetService: deadlineWidgetService,
-      deadlineReminderService: deadlineReminderService,
+      islandService: islandService,
     ),
   );
 
@@ -269,6 +289,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
   bootMark('cached data ready');
   deadlineWidgetService?.initialize();
 
+  islandService.start();
   oaGymService.startProfileSync();
   unawaited(campusCardService.refreshAccount());
 
@@ -278,7 +299,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
 
   // The island only mirrors what is already cached, so starting it on a device
   // where the user never turned it on costs nothing.
-  islandService.start();
+  spendingAlertService.start(authService, campusCardService);
 
   // Whatever the user has asked for keeps its own schedule: the periodic
   // wake-up outlives this process and brings no resident service with it.
@@ -308,6 +329,20 @@ Future<void> _realMain(SharedPreferences prefs) async {
       }
     }
 
+    void scheduleChanged() {
+      if (wearEngineService.ready &&
+          !scheduleService.loading &&
+          wearEngineService.supports('schedule.display')) {
+        unawaited(
+          wearEngineService.refresh(resources: ['schedule']).catchError((Object error) {
+            if (error is! WearFailure) throw error;
+          }),
+        );
+      }
+    }
+
+    scheduleService.addListener(scheduleChanged);
+    assignmentService.addListener(scheduleChanged);
     authService.addListener(accountChanged);
     thirdPartyAuthService.addListener(accountChanged);
     campusCardService.addListener(accountChanged);
@@ -320,20 +355,20 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // depend on those tokens. The whole block is unawaited so the splash
   // never blocks. --
   unawaited(() async {
-    // Primary SSO renewal uses Casdoor's refresh-token grant. With no
-    // refresh token (legacy session) this is a no-op and returns false —
-    // that is NOT a "login expired" condition, only an actual renewal
-    // failure is.
-    final renewMain = authService.isLoggedIn ? authService.tryRenewSession() : Future.value(true);
+    // Primary SSO renewal uses Casdoor's refresh-token grant. Only an explicit
+    // grant rejection (`invalid_grant` / `invalid_token`) means the user's
+    // login expired; legacy sessions without a refresh token and transient
+    // offline/timeout/5xx errors must not trigger a re-login prompt.
+    final renewMain = authService.isLoggedIn
+        ? authService.tryRenewSession()
+        : Future.value(SessionRenewalResult.skipped);
     final renewThirdParty = thirdPartyAuthService.autoRenewIfNeeded();
 
     final results = await Future.wait([renewMain, renewThirdParty]);
-    final mainOk = results[0] as bool;
+    final mainResult = results[0] as SessionRenewalResult;
     final failedTp = results[1] as List<ThirdPartyPlatform>;
 
-    // Only surface a renewal failure when we actually had a refresh token
-    // to try (a no-op returning false is not an expiry).
-    if (!mainOk && authService.session?.geekpieRefreshToken != null && !isIos()) {
+    if (mainResult.isExpired && !isIos()) {
       showAdaptiveFeedback(
         message: '登录已过期，请重新登录',
         style: AdaptiveFeedbackStyle.error,
@@ -421,14 +456,14 @@ class TechPieApp extends StatefulWidget {
   final CampusCardService campusCardService;
   final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
-  final IslandService? islandService;
-  final SpendingAlertService? spendingAlertService;
-  final KeepAliveService? keepAliveService;
-  final ScreenFormFactorService? screenFormFactorService;
-  final GlanceSettings? glanceSettings;
   final WearEngineService? wearEngineService;
   final DeadlineWidgetService? deadlineWidgetService;
   final DeadlineReminderService? deadlineReminderService;
+  final SpendingAlertService? spendingAlertService;
+  final IslandService? islandService;
+  final KeepAliveService? keepAliveService;
+  final ScreenFormFactorService? screenFormFactorService;
+  final GlanceSettings? glanceSettings;
 
   const TechPieApp({
     super.key,
@@ -464,6 +499,13 @@ class TechPieApp extends StatefulWidget {
 class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _nativeChromeObserver = CNTabBarRouteObserver();
+  late StudentAllowanceService _studentAllowanceService;
+
+  StudentAllowanceService _createStudentAllowanceService() => StudentAllowanceService(
+        widget.authService,
+        widget.thirdPartyAuthService,
+        logger: widget.debugLogger,
+      );
 
   /// The silent check runs at launch and whenever the app comes back to the
   /// foreground, but not more often than this: a resume is not a reason to hit
@@ -477,6 +519,8 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.wearEngineService?.resumeSync();
+    _studentAllowanceService = _createStudentAllowanceService();
     unawaited(_checkForUpdatesQuietly());
     widget.ecardWidgetService?.setOpenPayHandler(_openEcardPayCode);
     widget.deadlineWidgetService?.setOpenHandler(_openDeadlines);
@@ -486,6 +530,12 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant TechPieApp oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.authService != widget.authService ||
+        oldWidget.thirdPartyAuthService != widget.thirdPartyAuthService ||
+        oldWidget.debugLogger != widget.debugLogger) {
+      _studentAllowanceService.dispose();
+      _studentAllowanceService = _createStudentAllowanceService();
+    }
     if (oldWidget.deadlineWidgetService != widget.deadlineWidgetService) {
       oldWidget.deadlineWidgetService?.clearOpenHandler();
       widget.deadlineWidgetService?.setOpenHandler(_openDeadlines);
@@ -505,6 +555,9 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     widget.ecardWidgetService?.clearOpenPayHandler();
     widget.deadlineWidgetService?.dispose();
     widget.deadlineReminderService?.dispose();
+    widget.spendingAlertService?.dispose();
+    widget.islandService?.dispose();
+    _studentAllowanceService.dispose();
     widget.campusCardService.dispose();
     widget.wearEngineService?.dispose();
     super.dispose();
@@ -515,8 +568,13 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       // Coming back is a cheap moment to top the SSO token up, and it is
       // guarded: a token with time left is left alone.
+      widget.wearEngineService?.resumeSync();
       unawaited(widget.authService.tryRenewSession());
+      unawaited(widget.spendingAlertService?.synchronize());
+      unawaited(widget.islandService?.refreshNow(force: true));
       unawaited(_checkForUpdatesQuietly());
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      widget.wearEngineService?.suspendSync();
     }
   }
 
@@ -595,6 +653,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         thirdPartyAuthService: widget.thirdPartyAuthService,
         oaGymService: widget.oaGymService,
         egateAppService: widget.egateAppService,
+        studentAllowanceService: _studentAllowanceService,
         uniAuthService: widget.uniAuthService,
         syncService: widget.syncService,
         updateService: widget.updateService,

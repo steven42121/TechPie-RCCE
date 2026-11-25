@@ -29,4 +29,10 @@ target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::JSON_GLIB)
 pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::WEBKIT)
 
+pkg_check_modules(JSON_GLIB REQUIRED IMPORTED_TARGET json-glib-1.0)
+target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::JSON_GLIB)
+
+pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
+target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::WEBKIT)
+
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
