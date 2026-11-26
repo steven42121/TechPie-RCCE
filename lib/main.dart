@@ -54,6 +54,9 @@ import 'widgets/update_dialogs.dart';
 Future<void> backgroundRefresh() => runBackgroundRefresh();
 
 @pragma('vm:entry-point')
+Future<void> islandTimelineRebuild() => runIslandTimelineRebuild();
+
+@pragma('vm:entry-point')
 Future<void> spendingBackgroundRefresh() => runSpendingBackgroundRefresh();
 
 void main(List<String> args) async {

@@ -10,6 +10,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import club.geekpie.techpie.MainActivity
@@ -72,6 +73,7 @@ class IslandNotificationFactory(
     fun updateFrame(frame: IslandFrame, backend: IslandBackend, notifyId: Int) {
         if (!NotificationManagerCompat.from(appContext).areNotificationsEnabled()) return
         runCatching { manager.notify(notifyId, build(frame, backend, notifyId)) }
+            .onFailure { Log.w(TAG, "Failed to post island notification", it) }
     }
 
     fun cancel(notifyId: Int) {
@@ -86,7 +88,7 @@ class IslandNotificationFactory(
         frame: IslandFrame,
         backend: IslandBackend,
         notifyId: Int,
-        firstFloat: Boolean = false,
+        firstFloat: Boolean = shouldFloatFirst(backend, notifyId),
     ): Notification {
         ensureChannels()
         val builder = NotificationCompat.Builder(appContext, CHANNEL_ID)
@@ -97,7 +99,17 @@ class IslandNotificationFactory(
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(
+                NotificationCompat.Builder(appContext, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_island_notification)
+                    .setContentTitle(
+                        appContext.applicationInfo.loadLabel(appContext.packageManager),
+                    )
+                    .setContentText("有一条待查看的提醒")
+                    .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                    .build(),
+            )
 
         // Let the notification retire itself at the moment its content stops
         // being true. The dismissal alarm is the primary path; this is what
@@ -110,6 +122,7 @@ class IslandNotificationFactory(
         if (backend == IslandBackend.HYPER_ISLAND && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             runCatching { islandExtras(frame, notifyId, firstFloat) }
                 .onSuccess(builder::addExtras)
+                .onFailure { Log.w(TAG, "Failed to build HyperOS island payload", it) }
         } else {
             builder.setSilent(true)
             if (backend == IslandBackend.LIVE_UPDATE) {
@@ -124,6 +137,14 @@ class IslandNotificationFactory(
             }
         }
         return builder.build()
+    }
+
+    private fun shouldFloatFirst(backend: IslandBackend, notifyId: Int): Boolean {
+        if (backend != IslandBackend.HYPER_ISLAND || Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+            return false
+        }
+        return runCatching { manager.activeNotifications.none { it.id == notifyId } }
+            .getOrDefault(false)
     }
 
     /**
@@ -205,6 +226,7 @@ class IslandNotificationFactory(
     }
 
     companion object {
+        private const val TAG = "IslandNotificationFactory"
         const val CHANNEL_ID = "schedule_island"
         const val NOTIFICATION_ID = 0x15DA // island
 

@@ -19,8 +19,7 @@ import 'package:techpie/services/uni_auth_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('test/island');
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   late DateTime now;
   late StorageService storage;
@@ -50,8 +49,7 @@ void main() {
     auth = AuthService(storage, http, uniAuth);
     thirdParty = ThirdPartyAuthService(storage, http);
     schedule = ScheduleService(storage, http, auth, thirdParty);
-    assignments = AssignmentService(storage, http, auth, thirdParty, schedule)
-      ..loadCached();
+    assignments = AssignmentService(storage, http, auth, thirdParty, schedule)..loadCached();
     calls = [];
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
@@ -59,6 +57,7 @@ void main() {
         return {
           'backend': 'hyper_island',
           'postNotifications': true,
+          'islandLikely': true,
           'islandGranted': true,
           'liveUpdateGranted': false,
         };
@@ -112,17 +111,13 @@ void main() {
 
     // Verify native alarm timeline also includes the custom deadline dismissal event.
     await island.scheduleTimeline();
-    final scheduledArgs = calls
-        .lastWhere((c) => c.method == 'scheduleFrames')
-        .arguments as Map<Object?, Object?>;
-    final scheduledItems =
-        jsonDecode(scheduledArgs['frames'] as String) as List<dynamic>;
+    final scheduledArgs =
+        calls.lastWhere((c) => c.method == 'scheduleFrames').arguments as Map<Object?, Object?>;
+    final scheduledItems = jsonDecode(scheduledArgs['frames'] as String) as List<dynamic>;
     final dueMs = now.add(const Duration(hours: 3)).millisecondsSinceEpoch;
     expect(
       scheduledItems.any(
-        (item) =>
-            (item as Map<Object?, Object?>)['at'] == dueMs &&
-            item['frame'] == null,
+        (item) => (item as Map<Object?, Object?>)['at'] == dueMs && item['frame'] == null,
       ),
       isTrue,
     );
@@ -179,6 +174,15 @@ void main() {
     island.start();
     await Future<void>.delayed(Duration.zero);
     expect(lastPushedFrame()['title'], '远端作业');
+    expect(
+      calls.indexWhere((call) => call.method == 'scheduleFrames'),
+      lessThan(calls.indexWhere((call) => call.method == 'updateFrame')),
+    );
+    expect(
+      (calls.lastWhere((call) => call.method == 'updateFrame').arguments
+          as Map<Object?, Object?>)['generation'],
+      1,
+    );
 
     await assignments.saveCustomDeadline(
       owner: null,

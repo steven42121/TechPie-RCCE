@@ -27,6 +27,7 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) :
     Worker(appContext, params) {
 
     override fun doWork(): Result {
+        val islandOnly = inputData.getBoolean(ISLAND_ONLY_KEY, false)
         val main = Handler(Looper.getMainLooper())
         val finished = CountDownLatch(1)
         val completed = AtomicBoolean(false)
@@ -63,9 +64,14 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) :
                     applicationContext, messenger, IslandCapabilityProbe(applicationContext),
                     IslandNotificationFactory(applicationContext, FocusSequenceStore(applicationContext)),
                 )
-                spending = SpendingNotificationBridge(applicationContext, messenger)
+                if (!islandOnly) {
+                    spending = SpendingNotificationBridge(applicationContext, messenger)
+                }
                 runningEngine.dartExecutor.executeDartEntrypoint(
-                    DartExecutor.DartEntrypoint(loader.findAppBundlePath(), ENTRYPOINT),
+                    DartExecutor.DartEntrypoint(
+                        loader.findAppBundlePath(),
+                        entrypointFor(islandOnly),
+                    ),
                 )
             } catch (_: Exception) {
                 finished.countDown()
@@ -89,6 +95,11 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) :
     companion object {
         const val CHANNEL = "techpie/background"
         const val ENTRYPOINT = "backgroundRefresh"
+        const val ISLAND_ENTRYPOINT = "islandTimelineRebuild"
+        const val ISLAND_ONLY_KEY = "island_only"
         private const val TIMEOUT_SECONDS = 60L
+
+        internal fun entrypointFor(islandOnly: Boolean): String =
+            if (islandOnly) ISLAND_ENTRYPOINT else ENTRYPOINT
     }
 }

@@ -2,8 +2,11 @@ package club.geekpie.techpie.background
 
 import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import java.util.concurrent.TimeUnit
 
 /**
@@ -13,6 +16,7 @@ import java.util.concurrent.TimeUnit
  */
 object BackgroundScheduler {
     const val WORK_NAME = "techpie-refresh"
+    private const val ISLAND_REBUILD_WORK_NAME = "techpie-island-timeline-rebuild"
     const val INTERVAL_MINUTES = 15L
 
     fun schedule(context: Context) {
@@ -29,5 +33,16 @@ object BackgroundScheduler {
 
     fun cancel(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+    }
+
+    fun rebuildIslandTimeline(context: Context) {
+        val request = OneTimeWorkRequestBuilder<RefreshWorker>()
+            .setInputData(workDataOf(RefreshWorker.ISLAND_ONLY_KEY to true))
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            ISLAND_REBUILD_WORK_NAME,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request,
+        )
     }
 }

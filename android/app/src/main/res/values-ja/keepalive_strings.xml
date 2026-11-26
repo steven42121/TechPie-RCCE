@@ -3,5 +3,7 @@
     <string name="keepalive_channel_name">バックグラウンドで実行</string>
     <string name="keepalive_channel_desc">授業とウェアラブルの通知のためにアプリを実行し続けます</string>
     <string name="keepalive_notification_title">TechPie は実行中です</string>
-    <string name="keepalive_notification_text">授業とウェアラブルの通知が有効です</string>
+    <string name="keepalive_notification_text_hyper">HyperOS の島とウェアラブル通知が有効です</string>
+    <string name="keepalive_notification_text_live">Android のライブ更新とウェアラブル通知が有効です</string>
+    <string name="keepalive_notification_text_plain">授業、締切、ウェアラブルの通知が有効です</string>
 </resources>

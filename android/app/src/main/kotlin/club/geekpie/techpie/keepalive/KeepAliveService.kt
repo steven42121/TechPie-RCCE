@@ -14,6 +14,8 @@ import club.geekpie.techpie.R
 import club.geekpie.techpie.island.FocusSequenceStore
 import club.geekpie.techpie.island.IslandBackend
 import club.geekpie.techpie.island.IslandFrame
+import club.geekpie.techpie.island.IslandAlarms
+import club.geekpie.techpie.island.IslandCapabilityProbe
 import club.geekpie.techpie.island.IslandNotificationFactory
 
 /** Whether the user has asked for a resident process this run. */
@@ -51,8 +53,18 @@ class KeepAliveService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val frameJson = intent?.getStringExtra(EXTRA_FRAME_JSON)
+        val generation = intent?.takeIf { it.hasExtra(EXTRA_GENERATION) }
+            ?.getLongExtra(EXTRA_GENERATION, -1L)
+        val eventAt = intent?.takeIf { it.hasExtra(EXTRA_FRAME_AT) }
+            ?.getLongExtra(EXTRA_FRAME_AT, -1L)
+        if (frameJson != null && generation != null && eventAt != null &&
+            !IslandAlarms.isCurrentFrame(this, generation, frameJson, eventAt)
+        ) {
+            return START_STICKY
+        }
         render(
-            intent?.getStringExtra(EXTRA_FRAME_JSON),
+            frameJson,
             intent?.getStringExtra(EXTRA_BACKEND)
                 ?.let { runCatching { IslandBackend.valueOf(it.uppercase()) }.getOrNull() },
         )
@@ -65,7 +77,7 @@ class KeepAliveService : Service() {
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_island_notification)
                 .setContentTitle(getString(R.string.keepalive_notification_title))
-                .setContentText(getString(R.string.keepalive_notification_text))
+                .setContentText(keepAliveNotificationText())
                 .setContentIntent(contentIntent())
                 .setOngoing(true)
                 .setSilent(true)
@@ -78,6 +90,15 @@ class KeepAliveService : Service() {
             )
         }
         startForeground(IslandNotificationFactory.NOTIFICATION_ID, notification)
+    }
+
+    private fun keepAliveNotificationText(): String = when (
+        runCatching { IslandCapabilityProbe(this).snapshot().backend }
+            .getOrDefault(IslandBackend.PLAIN)
+    ) {
+        IslandBackend.HYPER_ISLAND -> getString(R.string.keepalive_notification_text_hyper)
+        IslandBackend.LIVE_UPDATE -> getString(R.string.keepalive_notification_text_live)
+        IslandBackend.PLAIN -> getString(R.string.keepalive_notification_text_plain)
     }
 
     private fun contentIntent(): PendingIntent {
@@ -113,15 +134,25 @@ class KeepAliveService : Service() {
         private const val ACTION_START = "club.geekpie.techpie.keepalive.action.START"
         private const val EXTRA_FRAME_JSON = "frame_json"
         private const val EXTRA_BACKEND = "backend"
+        private const val EXTRA_GENERATION = "generation"
+        private const val EXTRA_FRAME_AT = "frame_at"
         private const val CHANNEL_ID = "keep_alive"
 
-        fun start(context: Context, frameJson: String? = null, backend: IslandBackend? = null) {
+        fun start(
+            context: Context,
+            frameJson: String? = null,
+            backend: IslandBackend? = null,
+            generation: Long? = null,
+            frameAtMillis: Long? = null,
+        ) {
             val appContext = context.applicationContext
             val intent = Intent(appContext, KeepAliveService::class.java).apply {
                 action = ACTION_START
                 if (frameJson != null) {
                     putExtra(EXTRA_FRAME_JSON, frameJson)
                     putExtra(EXTRA_BACKEND, backend?.name)
+                    generation?.let { putExtra(EXTRA_GENERATION, it) }
+                    frameAtMillis?.let { putExtra(EXTRA_FRAME_AT, it) }
                 }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

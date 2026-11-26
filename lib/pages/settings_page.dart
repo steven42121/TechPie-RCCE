@@ -136,10 +136,12 @@ class _SettingsBodyState extends State<_SettingsBody> {
     final capability = _islandCapability;
     if (capability == null) return '显示当前课程、下一节课和即将到期的截止日期';
     if (!capability.notificationsEnabled) return '请允许 TechPie 发送通知';
-    return switch (capability.backend) {
+    return switch (capability.displayBackend) {
       'hyper_island' => '通过 HyperOS 超级岛显示',
       'live_update' => '通过 Android 实时通知显示',
-      _ => '通过普通常驻通知显示',
+      _ when capability.islandLikely && !capability.islandGranted =>
+        '尚未授权 HyperOS 超级岛，当前通过普通常驻通知显示',
+      _ => '通过普通常驻通知显示（非 HyperOS 超级岛）',
     };
   }
 
@@ -275,9 +277,11 @@ class _SettingsBodyState extends State<_SettingsBody> {
                       showDivider: showDivider,
                       trailing: AdaptiveSwitch(
                         value: storage.keepAliveEnabled,
-                        onChanged: (value) => unawaited(keepAlive.setEnabled(value).then((_) {
-                          if (mounted) setState(() {});
-                        }),),
+                        onChanged: (value) => unawaited(
+                          keepAlive.setEnabled(value).then((_) {
+                            if (mounted) setState(() {});
+                          }),
+                        ),
                       ),
                     ),
               if (isAndroid() &&
@@ -288,8 +292,12 @@ class _SettingsBodyState extends State<_SettingsBody> {
                       title: '背屏与小屏',
                       showDivider: showDivider,
                       showChevron: true,
-                      onTap: () => unawaited(pushAdaptivePage<void>(context,
-                          builder: (_) => const GlanceSettingsPage(),),),
+                      onTap: () => unawaited(
+                        pushAdaptivePage<void>(
+                          context,
+                          builder: (_) => const GlanceSettingsPage(),
+                        ),
+                      ),
                     ),
               if (_showsHuaweiWatch)
                 (showDivider) => TpListRow(
@@ -426,18 +434,19 @@ class _SettingsBodyState extends State<_SettingsBody> {
                               icon: Icons.blur_on,
                               title: '玻璃效果',
                               trailing: SizedBox(
-                                  width: 150,
-                                  child: DropdownButton<AppGlassMode>(
-                                    isExpanded: true,
-                                    value: themeService.glassMode,
-                                    items: [
-                                      for (final mode in AppGlassMode.values)
-                                        DropdownMenuItem(value: mode, child: Text(mode.label)),
-                                    ],
-                                    onChanged: (mode) {
-                                      if (mode != null) unawaited(themeService.setGlassMode(mode));
-                                    },
-                                  ),),
+                                width: 150,
+                                child: DropdownButton<AppGlassMode>(
+                                  isExpanded: true,
+                                  value: themeService.glassMode,
+                                  items: [
+                                    for (final mode in AppGlassMode.values)
+                                      DropdownMenuItem(value: mode, child: Text(mode.label)),
+                                  ],
+                                  onChanged: (mode) {
+                                    if (mode != null) unawaited(themeService.setGlassMode(mode));
+                                  },
+                                ),
+                              ),
                             ),
                         ],
                       ),
@@ -668,9 +677,11 @@ class _SettingsBodyState extends State<_SettingsBody> {
                             const SizedBox(width: TpTokens.space2),
                             IconButton(
                               tooltip: '显示或隐藏个人信息',
-                              icon: Icon(storageForMask(context).maskPersonalInfo
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,),
+                              icon: Icon(
+                                storageForMask(context).maskPersonalInfo
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                              ),
                               onPressed: () async {
                                 final storage = storageForMask(context);
                                 await storage.setMaskPersonalInfo(!storage.maskPersonalInfo);

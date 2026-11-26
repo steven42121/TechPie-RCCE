@@ -31,8 +31,7 @@ class IslandBridge(
                 "refreshProbe" -> result.success(probe.refresh().toMap())
                 "updateFrame" -> updateFrame(call, result)
                 "dismiss" -> {
-                    dismiss()
-                    result.success(true)
+                    result.success(dismiss(call))
                 }
                 "scheduleFrames" -> scheduleFrames(call, result)
                 "cancelFrames" -> {
@@ -46,8 +45,16 @@ class IslandBridge(
         }
     }
 
-    private fun dismiss() {
-        IslandAlarms.cancelRepaint(appContext)
+    private fun dismiss(call: MethodCall): Boolean {
+        val generation = call.argument<Number>("generation")?.toLong()
+            ?: IslandAlarms.currentGeneration(appContext)
+        if (!IslandAlarms.recordCurrentFrame(
+                appContext, generation, null, null, System.currentTimeMillis(),
+            )
+        ) {
+            return false
+        }
+        IslandAlarms.cancelRepaint(appContext, generation)
         if (KeepAlive.enabled) {
             // The resident process is still wanted — for the band link — so the
             // island's slot falls back to the plain keep-alive notice.
@@ -55,6 +62,7 @@ class IslandBridge(
         } else {
             factory.cancel(IslandNotificationFactory.NOTIFICATION_ID)
         }
+        return true
     }
 
     /** Precomputed frames from the Dart side, posted by AlarmManager later. */
@@ -76,8 +84,8 @@ class IslandBridge(
             result.error("BAD_FRAMES", error.message, null)
             return
         }
-        IslandAlarms.schedule(appContext, items)
-        result.success(items.size)
+        val generation = IslandAlarms.schedule(appContext, items)
+        result.success(generation)
     }
 
     fun dispose() {
@@ -91,24 +99,34 @@ class IslandBridge(
             result.error("BAD_FRAME", "missing or unreadable frame json", null)
             return
         }
-        // The caller may force a tier for testing; by default the device
-        // decides, so a phone without the focus grant still gets the capsule
-        // or a plain ongoing notification instead of nothing.
-        val backend = call.argument<String>("backend")
-            ?.let { name -> runCatching { IslandBackend.valueOf(name.uppercase()) }.getOrNull() }
-            ?: probe.snapshot().backend
+        // The native probe is authoritative. Keep the backend choice tied to
+        // the device's actual capability so callers cannot force HyperOS
+        // focus extras on a device that does not support them.
+        val backend = probe.snapshot().backend
         try {
+            val generation = call.argument<Number>("generation")?.toLong()
+                ?: IslandAlarms.currentGeneration(appContext)
+            val eventAt = System.currentTimeMillis()
+            if (!IslandAlarms.recordCurrentFrame(
+                    appContext, generation, frameJson, frame.expiresAt, eventAt,
+                )
+            ) {
+                result.error("STALE_FRAME", "A newer island frame is already active", null)
+                return
+            }
             if (KeepAlive.enabled) {
                 // The keep-alive chain: the frame is posted as the foreground
                 // notification, so painting it is also what holds the process
                 // open for the band link and the next frame.
-                KeepAliveService.start(appContext, frameJson, backend)
+                KeepAliveService.start(
+                    appContext, frameJson, backend, generation, eventAt,
+                )
             } else {
                 factory.updateFrame(frame, backend, IslandNotificationFactory.NOTIFICATION_ID)
             }
             // Keep a running class on the island even when the focus slot is
             // taken by another app's notification between frames.
-            IslandAlarms.scheduleRepaint(appContext, frameJson)
+            IslandAlarms.scheduleRepaint(appContext, frameJson, generation)
             result.success(backend.name.lowercase())
         } catch (e: Exception) {
             result.error("ISLAND_ERROR", e.message, null)

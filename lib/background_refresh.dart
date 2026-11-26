@@ -39,6 +39,24 @@ Future<void> runBackgroundRefresh() async {
   }
 }
 
+/// Rebuilds wall-clock alarms from cached schedule data after a time change.
+/// This entrypoint deliberately does not touch spending history or the network.
+Future<void> runIslandTimelineRebuild() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await _rebuildIslandTimeline();
+  } catch (_) {
+    // The next periodic refresh or app launch will rebuild it again.
+  }
+  try {
+    await const MethodChannel('techpie/background').invokeMethod<bool>('done');
+  } on PlatformException {
+    // The host went away first.
+  } on MissingPluginException {
+    // No host at all.
+  }
+}
+
 Future<void> _refresh() async {
   final prefs = await SharedPreferences.getInstance();
   final storage = StorageService(prefs);
@@ -55,8 +73,27 @@ Future<void> _refresh() async {
 
   await schedule.loadCachedData();
   assignments.loadCached();
+  await island.scheduleTimeline();
   await island.refreshNow(force: true);
   await _reportSpending(campusCard, storage, spending);
+}
+
+Future<void> _rebuildIslandTimeline() async {
+  final prefs = await SharedPreferences.getInstance();
+  final storage = StorageService(prefs);
+  final logger = DebugLogger();
+  final http = LoggingHttpClient(logger);
+  final uniAuth = UniAuthService(logger: logger);
+  final auth = AuthService(storage, http, uniAuth, logger: logger);
+  final tpAuth = ThirdPartyAuthService(storage, http);
+  final schedule = ScheduleService(storage, http, auth, tpAuth);
+  final assignments = AssignmentService(storage, http, auth, tpAuth, schedule);
+  final island = IslandService(storage, schedule, assignments);
+
+  await schedule.loadCachedData();
+  assignments.loadCached();
+  await island.scheduleTimeline();
+  await island.refreshNow(force: true);
 }
 
 Future<void> _reportSpending(

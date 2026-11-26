@@ -18,6 +18,7 @@ class IslandCapability {
     required this.notificationsEnabled,
     required this.islandGranted,
     required this.liveUpdateGranted,
+    this.islandLikely = false,
   });
 
   /// `hyper_island`, `live_update` or `plain`.
@@ -28,6 +29,15 @@ class IslandCapability {
   /// capable and still not allowed to float.
   final bool islandGranted;
   final bool liveUpdateGranted;
+  final bool islandLikely;
+
+  /// Reject inconsistent native snapshots rather than advertising a tier the
+  /// device probe did not actually confirm.
+  String get displayBackend => switch (backend) {
+        'hyper_island' when islandLikely && islandGranted => 'hyper_island',
+        'live_update' when !islandGranted && liveUpdateGranted => 'live_update',
+        _ => 'plain',
+      };
 
   static IslandCapability? fromMap(Object? map) {
     if (map is! Map) return null;
@@ -36,6 +46,7 @@ class IslandCapability {
       notificationsEnabled: map['postNotifications'] as bool? ?? false,
       islandGranted: map['islandGranted'] as bool? ?? false,
       liveUpdateGranted: map['liveUpdateGranted'] as bool? ?? false,
+      islandLikely: map['islandLikely'] as bool? ?? false,
     );
   }
 }
@@ -67,6 +78,8 @@ final class IslandService {
   Timer? _timer;
   Timer? _timelineDebounce;
   DateTime? _lastRefresh;
+  int? _timelineGeneration;
+  int _timelineRevision = 0;
   bool _showing = false;
   bool _started = false;
 
@@ -96,8 +109,7 @@ final class IslandService {
       return;
     }
     await _requestNotificationPermission();
-    await refreshNow(force: true);
-    await scheduleTimeline();
+    await _scheduleTimelineThenRefresh();
   }
 
   /// Follow the schedule and deadlines while the app runs; the platform side
@@ -111,9 +123,9 @@ final class IslandService {
     _schedule.addListener(_onDataChanged);
     _assignments.addListener(_onDataChanged);
     _timer = Timer.periodic(_tick, (_) => unawaited(refreshNow()));
-    unawaited(refreshNow(force: true));
-    // The platform keeps painting frames once this process is gone.
-    unawaited(scheduleTimeline());
+    // Rebuild alarms first: doing this after updateFrame would cancel its
+    // repaint alarm before the app goes back to the background.
+    unawaited(_scheduleTimelineThenRefresh());
   }
 
   void dispose() {
@@ -131,17 +143,11 @@ final class IslandService {
     if (!enabled) return;
     final now = _now();
     final last = _lastRefresh;
-    if (!force &&
-        last != null &&
-        now.difference(last) < _refreshCooldown) {
+    if (!force && last != null && now.difference(last) < _refreshCooldown) {
       return;
     }
     _lastRefresh = now;
-    final frame = buildIslandFrame(
-      dayCourses: coursesOnDay(_schedule, _assignments, now),
-      upcomingDeadlines: _openDeadlines(),
-      now: now,
-    );
+    final frame = _frameAt(now);
     if (frame == null) {
       await dismiss();
       return;
@@ -156,7 +162,10 @@ final class IslandService {
     if (!_showing && !force) return;
     _showing = false;
     try {
-      await _channel.invokeMethod<bool>('dismiss');
+      final dismissed = await _channel.invokeMethod<bool>('dismiss', {
+        if (_timelineGeneration != null) 'generation': _timelineGeneration,
+      });
+      if (dismissed == false && !force) _showing = true;
     } on PlatformException {
       // Already gone.
     } on MissingPluginException {
@@ -168,15 +177,30 @@ final class IslandService {
       .where((assignment) => !_assignments.isCompleted(assignment))
       .toList();
 
-  Future<void> _push(IslandFrame frame) async {
+  IslandFrame? _frameAt(DateTime now) => buildIslandFrame(
+        dayCourses: coursesOnDay(_schedule, _assignments, now),
+        upcomingDeadlines: _openDeadlines(),
+        now: now,
+      );
+
+  Future<void> _push(IslandFrame frame, {bool retryStale = false}) async {
     try {
       await _channel.invokeMethod<String>('updateFrame', {
         'frame': jsonEncode(frame.toJson()),
+        if (_timelineGeneration != null) 'generation': _timelineGeneration,
       });
       _showing = true;
-    } on PlatformException {
-      // A frame that cannot be shown is dropped, not retried: the next tick
-      // recomputes from state that is by then current.
+    } on PlatformException catch (error) {
+      if (error.code == 'STALE_FRAME' && enabled && !retryStale) {
+        await scheduleTimeline();
+        final current = _frameAt(_now());
+        if (current == null) {
+          await dismiss();
+        } else {
+          await _push(current, retryStale: true);
+        }
+      }
+      // Other platform failures are dropped; the next tick recomputes current state.
     } on MissingPluginException {
       // Non-Android platforms do not register the channel.
     }
@@ -190,8 +214,13 @@ final class IslandService {
     _timelineDebounce?.cancel();
     _timelineDebounce = Timer(
       const Duration(seconds: 2),
-      () => unawaited(scheduleTimeline()),
+      () => unawaited(_scheduleTimelineThenRefresh()),
     );
+  }
+
+  Future<void> _scheduleTimelineThenRefresh() async {
+    await scheduleTimeline();
+    await refreshNow(force: true);
   }
 
   /// Precompute the frames for the next days so the platform can post them with
@@ -200,21 +229,23 @@ final class IslandService {
     if (!supported) return;
     if (!enabled) {
       await _invokeQuiet('cancelFrames');
+      await dismiss(force: true);
       return;
     }
+    final revision = ++_timelineRevision;
     final events = buildIslandTimeline(
       coursesForDay: (day) => coursesOnDay(_schedule, _assignments, day),
       deadlines: _openDeadlines(),
       now: _now(),
     ).entries;
     final payload = [
-      for (final entry in events)
-        {'at': entry.key, 'frame': entry.value?.toJson()},
+      for (final entry in events) {'at': entry.key, 'frame': entry.value?.toJson()},
     ];
     try {
-      await _channel.invokeMethod<int>('scheduleFrames', {
+      final generation = await _channel.invokeMethod<int>('scheduleFrames', {
         'frames': jsonEncode(payload),
       });
+      if (revision == _timelineRevision) _timelineGeneration = generation;
     } on PlatformException {
       // Best effort: the in-process refresh still runs while the app is open.
     } on MissingPluginException {
@@ -223,6 +254,10 @@ final class IslandService {
   }
 
   Future<void> _invokeQuiet(String method) async {
+    if (method == 'cancelFrames') {
+      _timelineRevision++;
+      _timelineGeneration = null;
+    }
     try {
       await _channel.invokeMethod<Object?>(method);
     } on PlatformException {
